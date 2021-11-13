@@ -15,5 +15,9 @@ pub enum Error {
     #[error("Connection broken")]
     ConnectionBroken,
     #[error("MQTT Error : {0}")]
-    MQTT(mqttbytes::Error)
+    MQTT(mqttbytes::Error),
+    #[error("Rustls Error : {0}")]
+    Rustls(#[from] rustls::Error),
+    #[error("Tls Error")]
+    Tls,
 }
