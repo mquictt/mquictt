@@ -1,0 +1,14 @@
+[package]
+name = "mquictt"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = { version = "1", features = ["serde"] }
+futures = "0.3.17"
+mqttbytes = "0.6"
+quinn = "0.7.2"
+thiserror = "1.0.30"
+tokio = { version = "1.13", features = ["rt", "rt-multi-thread", "macros"] }
