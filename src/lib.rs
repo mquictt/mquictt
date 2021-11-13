@@ -4,8 +4,10 @@ use futures::StreamExt;
 
 mod client;
 mod error;
+mod server;
 pub use error::Error;
-pub use client::Client;
+pub use client::*;
+pub use server::*;
 
 pub(crate) struct Connection {
     conn: quinn::Connection,
