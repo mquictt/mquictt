@@ -21,11 +21,13 @@ pub enum Error {
     #[error("Tls Error")]
     Tls,
     #[error("Sub Request Tx Error : {0}")]
-    PubDataTx(#[from] flume::SendError<bytes::Bytes>),
+    PubDataTx(#[from] flume::SendError<mqttbytes::v4::Publish>),
     #[error("Pub Data Recv Error : {0}")]
     PubDataRx(#[from] flume::RecvError),
     #[error("Sub Request Tx Error : {0}")]
-    SubReqTx(#[from] flume::SendError<flume::Sender<bytes::Bytes>>),
+    SubReqTx(#[from] flume::SendError<flume::Sender<mqttbytes::v4::Publish>>),
     #[error("Sub Request Tx Error : {0}")]
     SubReqRx(flume::RecvError),
+    #[error("Config Parse Error : {0}")]
+    ConfigParse(#[from] serde_json::Error),
 }

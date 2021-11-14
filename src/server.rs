@@ -4,32 +4,37 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::{stream::FuturesUnordered, StreamExt};
+use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{Connection, Error, QuicServer};
+use crate::{Config, Connection, Error, QuicServer};
 
-type DataTx = flume::Sender<Bytes>;
-type DataRx = flume::Receiver<Bytes>;
+type DataTx = flume::Sender<v4::Publish>;
+type DataRx = flume::Receiver<v4::Publish>;
 
 type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
 type Mapper = Arc<RwLock<HashMap<String, SubReqTx>>>;
 
-pub async fn server(addr: &SocketAddr) -> Result<(), Error> {
-    let mut listener = QuicServer::new(addr)?;
+pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error> {
+    let mut listener = QuicServer::new(config, addr)?;
     let mapper: Mapper = Arc::new(RwLock::new(HashMap::default()));
 
     loop {
         let conn = match listener.accept().await {
             Ok(conn) => conn,
-            Err(Error::ConnectionBroken) => return Ok(()),
+            Err(Error::ConnectionBroken) => {
+                log::warn!("conn broker {}", listener.local_addr());
+                return Ok(())
+            },
             e => e?,
         };
         let mapper = mapper.clone();
 
+        info!("accepted conn from {}", conn.remote_addr());
         tokio::spawn(connection_handler(conn, mapper));
     }
 }
@@ -41,6 +46,7 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
     rx.read(&mut buf).await?;
     loop {
         match v4::read(&mut buf, 1024 * 1024) {
+            // TODO: check duplicate id
             Ok(v4::Packet::Connect(_)) => break,
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
@@ -55,7 +61,7 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
     if let Err(e) = v4::ConnAck::new(v4::ConnectReturnCode::Success, false).write(&mut buf) {
         return Err(Error::MQTT(e));
     }
-    let _write = tx.write(&buf).await?;
+    let _write = tx.write_all(&buf).await?;
 
     buf.clear();
     loop {
@@ -137,7 +143,7 @@ async fn handle_publish(
                     None => break,
                 };
 
-                let v4::Publish { payload, .. } = match v4::read(&mut buf, 1024 * 1024) {
+                let publish = match v4::read(&mut buf, 1024 * 1024) {
                     Ok(v4::Packet::Publish(publish)) => publish,
                     Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
                     Err(e) => return Err(Error::MQTT(e)),
@@ -145,9 +151,9 @@ async fn handle_publish(
 
                 for (slab_id, subsriber) in subscribers.iter() {
                     let subsriber = subsriber.clone();
-                    let payload = payload.clone();
+                    let publish = publish.clone();
                     send_queue.push(async move {
-                        match subsriber.send_async(payload).await {
+                        match subsriber.send_async(publish).await {
                             Ok(_) => None,
                             Err(e) => Some((slab_id, e)),
                         }
@@ -180,10 +186,39 @@ async fn handle_publish(
 }
 
 async fn handle_subscribe(
-    tx: quinn::SendStream,
-    rx: quinn::RecvStream,
+    mut tx: quinn::SendStream,
+    mut rx: quinn::RecvStream,
     data_rx: DataRx,
 ) -> Result<(), Error> {
-    unimplemented!();
+    let mut buf = BytesMut::new();
+    let suback = v4::SubAck::new(0, vec![v4::SubscribeReasonCode::Success(mqttbytes::QoS::AtMostOnce)]);
+
+    loop {
+        tokio::select! {
+            data_res = data_rx.recv_async() => {
+                let data = data_res?;
+                // TODO: use try_recv in loop for buffering
+                if let Err(e) = data.write(&mut buf) {
+                    return Err(Error::MQTT(e));
+                };
+                tx.write_all(&buf).await?;
+            }
+            res = rx.read(&mut buf) => {
+                res?;
+                match v4::read(&mut buf, 1024 * 1024) {
+                    Ok(v4::Packet::Unsubscribe(_)) => {
+                        if let Err(e) = suback.write(&mut buf) {
+                            return Err(Error::MQTT(e));
+                        };
+                        tx.write_all(&buf).await?;
+                        break
+                    },
+                    Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
+                    Err(e) => return Err(Error::MQTT(e)),
+                };
+            }
+        }
+    }
+
     Ok(())
 }
