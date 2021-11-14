@@ -12,13 +12,26 @@ use figment::{
 use mquictt::Config;
 use tokio::runtime::Runtime;
 
-#[bench]
-fn benchmark_single_topic(b: &mut test::Bencher) -> Result<(), Error> {
+const CONFIG: &str = r#"{
+    "auth": {
+        "ca_cert_file": "./tls/ca.cert.pem",
+        "cert_file": "./tls/a.cert.pem",
+        "key_file": "./tls/a.key.pem"
+    }
+}"#;
+
+fn configure(config: &str) -> Result<Arc<Config>, Error> {
     let config: Config = Figment::new()
-        .merge(Data::<Json>::file("./config.json"))
+        .merge(Data::<Json>::string(config))
         .extract()
         .with_context(|| format!("Config error"))?;
-    let config = Arc::new(config);
+
+    Ok(Arc::new(config))
+}
+
+#[bench]
+fn benchmark_single_topic(b: &mut test::Bencher) -> Result<(), Error> {
+    let config = configure("")?;
 
     let rt = Runtime::new()?;
     rt.block_on(async {
