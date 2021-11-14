@@ -19,6 +19,11 @@ type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
 type Mapper = Arc<RwLock<HashMap<String, SubReqTx>>>;
 
+/// Spawns a new server that listens for incoming MQTT connects from clients at the given address.
+///
+/// ```
+/// tokio::spawn(server([127, 0, 0, 1], 1883).into(), mquictt::Config::empty());
+/// ```
 pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error> {
     let mut listener = QuicServer::new(config, addr)?;
     let mapper: Mapper = Arc::new(RwLock::new(HashMap::default()));
