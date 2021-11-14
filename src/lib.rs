@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
 use config::Auth;

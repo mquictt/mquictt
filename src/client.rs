@@ -5,6 +5,20 @@ use mqttbytes::v4;
 
 use crate::{Config, Connection, Error};
 
+/// Used to initiate connection to a MQTT server over QUIC.
+///
+/// Can be initiated using [`Connection::connect()`] function.
+/// ```no_run
+/// # async fn run(
+/// # bind_addr: &SocketAddr,
+/// # connect_addr: &SocketAddr,
+/// # server_name: &str,
+/// # id: impl Into<String>,
+/// # config: Arc<Config>,
+/// # ) -> Result<(), mquictt::Error> {
+/// mquictt::Client::connect(bind_addr, connect_addr, server_name, id, config).await?;
+/// #}
+/// ```
 pub struct Client {
     conn: Connection,
 }
