@@ -10,11 +10,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn connect(
+    pub async fn connect<A: Into<String>>(
         bind_addr: &SocketAddr,
         connect_addr: &SocketAddr,
         server_name: &str,
-        id: impl Into<String>,
+        id: A,
         config: Arc<Config>,
     ) -> Result<Self, Error> {
         let mut conn = Connection::connect(bind_addr, connect_addr, server_name, config).await?;
