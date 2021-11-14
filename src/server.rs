@@ -9,7 +9,7 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{Connection, Error, QuicServer};
+use crate::{Config, Connection, Error, QuicServer};
 
 type DataTx = flume::Sender<Bytes>;
 type DataRx = flume::Receiver<Bytes>;
@@ -18,8 +18,8 @@ type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
 type Mapper = Arc<RwLock<HashMap<String, SubReqTx>>>;
 
-pub async fn server(addr: &SocketAddr) -> Result<(), Error> {
-    let mut listener = QuicServer::new(addr)?;
+pub async fn server(config: Arc<Config>, addr: &SocketAddr) -> Result<(), Error> {
+    let mut listener = QuicServer::new(config, addr)?;
     let mapper: Mapper = Arc::new(RwLock::new(HashMap::default()));
 
     loop {

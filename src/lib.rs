@@ -46,15 +46,21 @@ impl QuicServer {
 }
 
 #[allow(dead_code)]
-pub(crate) type QuicClient = Connection;
+pub(crate) struct QuicClient {
+    config: Arc<Config>,
+    conn: quinn::Connection,
+}
 
 impl Connection {
     pub(crate) async fn connect(
         bind_addr: &SocketAddr,
         connect_addr: &SocketAddr,
         server_name: &str,
+        config: Arc<Config>
     ) -> Result<Self, Error> {
-        let (endpoint, _) = quinn::Endpoint::builder().bind(bind_addr)?;
+        let mut builder = quinn::Endpoint::builder();
+        builder.default_client_config(client_config(&config)?);
+        let (endpoint, _) = builder.bind(bind_addr)?;
         let quinn::NewConnection {
             connection: conn,
             bi_streams: streams,
