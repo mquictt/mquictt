@@ -1,7 +1,0 @@
-{
-	"auth": {
-		"ca_cert_file": "certs/rootca.crt",
-		"cert_file": "certs/cert.crt",
-		"key_file": "certs/cert.key"
-	}
-}

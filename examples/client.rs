@@ -39,7 +39,7 @@ async fn launch_client(
         connect_addr,
         "localhost",
         &format!("{}", id),
-        mquictt::Config::read(&"examples/config.json".to_string()).unwrap(),
+        mquictt::Config::read(&"examples/client.json").unwrap(),
     )
     .await?;
 
