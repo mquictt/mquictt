@@ -15,5 +15,13 @@ pub enum Error {
     #[error("Connection broken")]
     ConnectionBroken,
     #[error("MQTT Error : {0}")]
-    MQTT(mqttbytes::Error)
+    MQTT(mqttbytes::Error),
+    #[error("Sub Request Tx Error : {0}")]
+    PubDataTx(#[from] flume::SendError<bytes::Bytes>),
+    #[error("Pub Data Recv Error : {0}")]
+    PubDataRx(#[from] flume::RecvError),
+    #[error("Sub Request Tx Error : {0}")]
+    SubReqTx(#[from] flume::SendError<flume::Sender<bytes::Bytes>>),
+    #[error("Sub Request Tx Error : {0}")]
+    SubReqRx(flume::RecvError),
 }
