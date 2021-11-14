@@ -3,8 +3,8 @@ use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 use config::Auth;
 use futures::StreamExt;
 use log::*;
-use quinn::{ClientConfig, TransportConfig};
-use rustls::{Certificate, PrivateKey, RootCertStore};
+use quinn::{ClientConfig, ServerConfig, TransportConfig};
+use rustls::{AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore};
 
 mod client;
 mod config;
@@ -29,10 +29,14 @@ pub(crate) struct QuicServer {
 impl QuicServer {
     pub(crate) fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
         let mut builder = quinn::Endpoint::builder();
-        builder.default_client_config(client_config(&config)?);
+        builder.listen(server_config(&config)?);
         let (endpoint, incoming) = builder.bind(addr)?;
         info!("QUIC server launched at {}", endpoint.local_addr().unwrap());
-        Ok(QuicServer { config, incoming, endpoint })
+        Ok(QuicServer {
+            config,
+            incoming,
+            endpoint,
+        })
     }
 
     pub(crate) async fn accept(&mut self) -> Result<Connection, Error> {
@@ -124,8 +128,9 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             let ca_file = File::open(ca_path)?;
             let ca_file = &mut BufReader::new(ca_file);
             let mut store = RootCertStore::empty();
-            store.add_pem_file(ca_file).map_err(|_| Error::MissingCertificate)?;
-
+            store
+                .add_pem_file(ca_file)
+                .map_err(|_| Error::MissingCertificate)?;
 
             let mut client_config = rustls::ClientConfig::default();
             client_config.root_store = store;
@@ -139,5 +144,54 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
         }
 
         None => Ok(ClientConfig::default()),
+    }
+}
+
+fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
+    match &config.auth {
+        Some(Auth {
+            cert_file: cert_path,
+            key_file: key_path,
+            ca_cert_file: ca_path,
+        }) => {
+            // Get certificates
+            let cert_file = File::open(&cert_path)?;
+            let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
+
+            // Get private key
+            let key_file = File::open(&key_path)?;
+            let keys = rustls_pemfile::pkcs8_private_keys(&mut BufReader::new(key_file))?;
+
+            // Get the first key
+            let key = match keys.first() {
+                Some(k) => k.clone(),
+                None => return Err(Error::MissingCertificate),
+            };
+
+            let certs = certs
+                .iter()
+                .map(|cert| Certificate(cert.to_vec()))
+                .collect();
+            let key = PrivateKey(key);
+
+            let ca_file = File::open(ca_path)?;
+            let ca_file = &mut BufReader::new(ca_file);
+            let mut store = RootCertStore::empty();
+            store
+                .add_pem_file(ca_file)
+                .map_err(|_| Error::MissingCertificate)?;
+
+            let mut config =
+                rustls::ServerConfig::new(AllowAnyAnonymousOrAuthenticatedClient::new(store));
+            config.set_single_cert(certs, key)?;
+            config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
+
+            let mut server_config = ServerConfig::default();
+            server_config.crypto = Arc::new(config);
+
+            Ok(server_config)
+        }
+
+        None => Ok(ServerConfig::default()),
     }
 }
