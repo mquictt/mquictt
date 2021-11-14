@@ -7,6 +7,6 @@
 A rustlang utility/library for MQTT over QUIC. Please open issues or PRs to help with developing this library :D
 
 ## Acknowledgements
-We use [cloudflare/quiche][quiche] underneath.
+We use [quinn-rs/quinn][quinn] underneath.
 
-[quiche]: https://github.com/cloudflare/quiche
+[quinn]: https://github.com/quinn-rs/quinn
