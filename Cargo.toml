@@ -12,4 +12,5 @@ futures = "0.3.17"
 mqttbytes = "0.6"
 quinn = "0.7.2"
 thiserror = "1.0.30"
+slab = "0.4.5"
 tokio = { version = "1.13", features = ["rt", "rt-multi-thread", "macros"] }
