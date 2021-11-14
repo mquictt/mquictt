@@ -9,9 +9,9 @@ mod client;
 mod config;
 mod error;
 mod server;
+pub use client::*;
 pub use config::Config;
 pub use error::Error;
-pub use client::*;
 pub use server::*;
 
 pub(crate) struct Connection {
@@ -53,8 +53,11 @@ impl Connection {
         bind_addr: &SocketAddr,
         connect_addr: &SocketAddr,
         server_name: &str,
+        config: Arc<Config>,
     ) -> Result<Self, Error> {
-        let (endpoint, _) = quinn::Endpoint::builder().bind(bind_addr)?;
+        let mut builder = quinn::Endpoint::builder();
+        builder.default_client_config(client_config(&config)?);
+        let (endpoint, _) = builder.bind(bind_addr)?;
         let quinn::NewConnection {
             connection: conn,
             bi_streams: streams,
@@ -95,7 +98,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             // Get the first key
             let key = match keys.first() {
                 Some(k) => k.clone(),
-                None => return Err(Error::Tls),
+                None => return Err(Error::MissingCertificate),
             };
 
             let certs = certs
@@ -107,7 +110,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             let ca_file = File::open(ca_path)?;
             let ca_file = &mut BufReader::new(ca_file);
             let mut store = RootCertStore::empty();
-            store.add_pem_file(ca_file);
+            store.add_pem_file(ca_file).map_err(|_| Error::MissingCertificate)?;
 
             let mut client_config = rustls::ClientConfig::default();
             client_config.root_store = store;
