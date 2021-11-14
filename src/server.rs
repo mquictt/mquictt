@@ -5,7 +5,9 @@ use std::{
 };
 
 use bytes::{Bytes, BytesMut};
+use futures::{stream::FuturesUnordered, StreamExt};
 use mqttbytes::v4;
+use slab::Slab;
 
 use crate::{Connection, Error, QuicServer};
 
@@ -79,13 +81,15 @@ async fn handle_new_stream(
     rx.read(&mut buf).await?;
     loop {
         match v4::read(&mut buf, 1024 * 1024) {
-            Ok(v4::Packet::Publish(publish)) => {
+            Ok(v4::Packet::Publish(v4::Publish { topic, .. })) => {
+                // ignoring first publish's payload as there are no subscribers
+                // TODO: handle case when subsribing to topic that is not in mapper
                 let (sub_req_tx, sub_req_rx) = flume::bounded(1024);
                 {
                     let mut map_writer = mapper.write().unwrap();
-                    map_writer.insert(publish.topic.clone(), sub_req_tx);
+                    map_writer.insert(topic, sub_req_tx);
                 }
-                return handle_publish(rx, sub_req_rx, publish, buf).await;
+                return handle_publish(rx, sub_req_rx, buf).await;
             }
             Ok(v4::Packet::Subscribe(v4::Subscribe { filters, .. })) => {
                 // only handling a single subsribe for now, as client only sends 1 subscribe at a
@@ -105,7 +109,7 @@ async fn handle_new_stream(
                     sub_req_tx.send(data_tx)?;
                 }
                 return handle_subscribe(tx, rx, data_rx).await;
-            },
+            }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
                 rx.read(&mut buf).await?;
@@ -117,12 +121,61 @@ async fn handle_new_stream(
 }
 
 async fn handle_publish(
-    rx: quinn::RecvStream,
+    mut rx: quinn::RecvStream,
     sub_req_rx: SubReqRx,
-    init_publish: v4::Publish,
-    buf: BytesMut,
+    mut buf: BytesMut,
 ) -> Result<(), Error> {
-    unimplemented!()
+    let mut subscribers: Slab<Arc<DataTx>> = Slab::with_capacity(1024);
+    let mut send_queue = FuturesUnordered::new();
+    let mut send_queue_empty = true;
+
+    loop {
+        tokio::select! {
+            read = rx.read(&mut buf) => {
+                let _len = match read? {
+                    Some(len) => len,
+                    None => break,
+                };
+
+                let v4::Publish { payload, .. } = match v4::read(&mut buf, 1024 * 1024) {
+                    Ok(v4::Packet::Publish(publish)) => publish,
+                    Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
+                    Err(e) => return Err(Error::MQTT(e)),
+                };
+
+                for (slab_id, subsriber) in subscribers.iter() {
+                    let subsriber = subsriber.clone();
+                    let payload = payload.clone();
+                    send_queue.push(async move {
+                        match subsriber.send_async(payload).await {
+                            Ok(_) => None,
+                            Err(e) => Some((slab_id, e)),
+                        }
+                    });
+                }
+            }
+
+            sub_req = sub_req_rx.recv_async() => {
+                // if cannot be recved then mapper has been droped, exit normally
+                let data_tx = match sub_req {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                subscribers.insert(Arc::new(data_tx));
+            }
+
+            send_opt = send_queue.next(), if !send_queue_empty => {
+                match send_opt {
+                    Some(Some((slab_id, _e))) => {
+                        subscribers.remove(slab_id);
+                    },
+                    Some(None) => {}
+                    None => send_queue_empty = false,
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -131,6 +184,6 @@ async fn handle_subscribe(
     rx: quinn::RecvStream,
     data_rx: DataRx,
 ) -> Result<(), Error> {
-    unimplemented!()
+    unimplemented!();
     Ok(())
 }
