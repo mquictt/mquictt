@@ -42,10 +42,19 @@ impl Client {
         Ok(Client { conn })
     }
 
-    pub async fn publisher(&mut self, topic: impl Into<String>) -> Result<Publisher, Error> {
-        let (tx, _) = self.conn.create_stream().await?;
+    // `init_payload` needed as we need to let server know what type of stream this is
+    pub async fn publisher(&mut self, topic: impl Into<String>, init_payload: Bytes) -> Result<Publisher, Error> {
+        let (mut tx, _) = self.conn.create_stream().await?;
+        let topic = topic.into();
+
+        let mut buf = BytesMut::new();
+        if let Err(e) = v4::Publish::from_bytes(&topic, mqttbytes::QoS::AtMostOnce, init_payload).write(&mut buf) {
+            return Err(Error::MQTT(e));
+        }
+        let _write = tx.write(&buf).await?;
+
         Ok(Publisher {
-            topic: topic.into(),
+            topic,
             tx,
             buf: BytesMut::new(),
         })

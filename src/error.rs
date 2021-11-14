@@ -20,4 +20,12 @@ pub enum Error {
     Rustls(#[from] rustls::TLSError),
     #[error("Tls Error")]
     Tls,
+    #[error("Sub Request Tx Error : {0}")]
+    PubDataTx(#[from] flume::SendError<bytes::Bytes>),
+    #[error("Pub Data Recv Error : {0}")]
+    PubDataRx(#[from] flume::RecvError),
+    #[error("Sub Request Tx Error : {0}")]
+    SubReqTx(#[from] flume::SendError<flume::Sender<bytes::Bytes>>),
+    #[error("Sub Request Tx Error : {0}")]
+    SubReqRx(flume::RecvError),
 }

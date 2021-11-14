@@ -8,9 +8,11 @@ use rustls::{Certificate, PrivateKey, RootCertStore};
 mod client;
 mod config;
 mod error;
-pub use client::Client;
+mod server;
 pub use config::Config;
 pub use error::Error;
+pub use client::*;
+pub use server::*;
 
 pub(crate) struct Connection {
     conn: quinn::Connection,
