@@ -15,3 +15,7 @@ thiserror = "1.0.30"
 slab = "0.4.5"
 tokio = { version = "1.13", features = ["rt", "rt-multi-thread", "macros"] }
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+figment = { version = "0.10.6", features = ["json"] }
+anyhow = "1"
