@@ -4,6 +4,7 @@ use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
 use config::Auth;
 use futures::StreamExt;
+use log::*;
 use quinn::{ClientConfig, TransportConfig};
 use rustls::{Certificate, PrivateKey, RootCertStore};
 
@@ -24,14 +25,16 @@ pub(crate) struct Connection {
 pub(crate) struct QuicServer {
     config: Arc<Config>,
     incoming: quinn::Incoming,
+    endpoint: quinn::Endpoint,
 }
 
 impl QuicServer {
     pub(crate) fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
         let mut builder = quinn::Endpoint::builder();
         builder.default_client_config(client_config(&config)?);
-        let (_, incoming) = builder.bind(addr)?;
-        Ok(QuicServer { config, incoming })
+        let (endpoint, incoming) = builder.bind(addr)?;
+        info!("QUIC server launched at {}", endpoint.local_addr().unwrap());
+        Ok(QuicServer { config, incoming, endpoint })
     }
 
     pub(crate) async fn accept(&mut self) -> Result<Connection, Error> {
@@ -44,6 +47,10 @@ impl QuicServer {
             None => return Err(Error::ConnectionBroken),
         };
         Ok(Connection { conn, streams })
+    }
+
+    pub(crate) fn local_addr(&self) -> SocketAddr {
+        self.endpoint.local_addr().unwrap()
     }
 }
 
@@ -60,11 +67,14 @@ impl Connection {
         let mut builder = quinn::Endpoint::builder();
         builder.default_client_config(client_config(&config)?);
         let (endpoint, _) = builder.bind(bind_addr)?;
+
+        info!("connecting to {}", connect_addr);
         let quinn::NewConnection {
             connection: conn,
             bi_streams: streams,
             ..
         } = endpoint.connect(connect_addr, server_name)?.await?;
+        info!("connected to {}", conn.remote_address());
         Ok(Connection { conn, streams })
     }
 
@@ -79,6 +89,10 @@ impl Connection {
             Some(s) => Ok(s?),
             None => Err(Error::ConnectionBroken),
         }
+    }
+
+    pub(crate) fn remote_addr(&self) -> SocketAddr {
+        self.conn.remote_address()
     }
 }
 
@@ -95,7 +109,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
 
             // Get private key
             let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
+            let keys = rustls_pemfile::pkcs8_private_keys(&mut BufReader::new(key_file))?;
 
             // Get the first key
             let key = match keys.first() {
@@ -114,9 +128,11 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             let mut store = RootCertStore::empty();
             store.add_pem_file(ca_file).map_err(|_| Error::MissingCertificate)?;
 
+
             let mut client_config = rustls::ClientConfig::default();
             client_config.root_store = store;
             client_config.set_single_client_cert(certs, key)?;
+            client_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
 
             Ok(ClientConfig {
                 transport: Arc::new(TransportConfig::default()),
