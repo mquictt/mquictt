@@ -130,6 +130,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             let mut client_config = rustls::ClientConfig::default();
             client_config.root_store = store;
             client_config.set_single_client_cert(certs, key)?;
+            client_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
 
             Ok(ClientConfig {
                 transport: Arc::new(TransportConfig::default()),
