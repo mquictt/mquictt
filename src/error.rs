@@ -9,6 +9,8 @@ pub enum Error {
     Endpoint(#[from] quinn::EndpointError),
     /// QUIC connection error, happens while reading/writing to connection. Different from
     /// [`Connect`] which happens when trying to connect for the first time.
+    ///
+    /// [`Connect`]: Error::Connect
     #[error("Server Connect Error : {0}")]
     Connection(#[from] quinn::ConnectionError),
     /// QUIC error when connecting to the server.
