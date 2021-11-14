@@ -10,7 +10,9 @@ bytes = { version = "1", features = ["serde"] }
 flume = "0.10.9"
 futures = "0.3.17"
 mqttbytes = "0.6"
-quinn = "0.7.2"
+quinn = { version = "0.7.2", features = ["rustls"] }
+rustls = "0.19"
+rustls-pemfile = "0.2.1"
 thiserror = "1.0.30"
 slab = "0.4.5"
 tokio = { version = "1.13", features = ["rt", "rt-multi-thread", "macros"] }
