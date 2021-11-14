@@ -18,8 +18,8 @@ pub enum Error {
     MQTT(mqttbytes::Error),
     #[error("Rustls Error : {0}")]
     Rustls(#[from] rustls::TLSError),
-    #[error("Tls Error")]
-    Tls,
+    #[error("Missing Tls Certificate Error")]
+    MissingCertificate,
     #[error("Sub Request Tx Error : {0}")]
     PubDataTx(#[from] flume::SendError<bytes::Bytes>),
     #[error("Pub Data Recv Error : {0}")]
