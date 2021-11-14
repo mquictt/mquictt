@@ -107,7 +107,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
 
             // Get private key
             let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
+            let keys = rustls_pemfile::pkcs8_private_keys(&mut BufReader::new(key_file))?;
 
             // Get the first key
             let key = match keys.first() {

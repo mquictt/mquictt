@@ -39,6 +39,7 @@ async fn launch_client(
         connect_addr,
         "localhost",
         &format!("{}", id),
+        mquictt::Config::read(&"examples/config.json".to_string()).unwrap(),
     )
     .await?;
 
@@ -77,7 +78,6 @@ async fn spawn_subs(
             Ok(())
         });
         v.push(handle);
-
     }
     Ok(v)
 }

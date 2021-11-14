@@ -1,4 +1,4 @@
-use std::{sync::Arc, fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
 use serde::Deserialize;
 
@@ -21,7 +21,7 @@ impl Config {
         Arc::new(Config { auth: None })
     }
 
-    pub fn read(path: &impl AsRef<Path>) -> Result<Self, Error> {
-        Ok(serde_json::from_slice(&fs::read(path)?)?)
+    pub fn read(path: &impl AsRef<Path>) -> Result<Arc<Self>, Error> {
+        Ok(Arc::new(serde_json::from_slice(&fs::read(path)?)?))
     }
 }

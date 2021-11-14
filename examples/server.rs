@@ -4,7 +4,7 @@ async fn main() {
 
     mquictt::server(
         &([127, 0, 0, 1], 1883).into(),
-        mquictt::Config::empty(),
+        mquictt::Config::read(&"examples/config.json".to_owned()).unwrap(),
     )
     .await
     .unwrap();
