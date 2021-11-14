@@ -1,10 +1,10 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
 // use log::*;
 use mqttbytes::v4;
 
-use crate::{Connection, Error};
+use crate::{Config, Connection, Error};
 
 pub struct Client {
     conn: Connection,
@@ -16,8 +16,9 @@ impl Client {
         connect_addr: &SocketAddr,
         server_name: &str,
         id: impl Into<String>,
+        config: Arc<Config>,
     ) -> Result<Self, Error> {
-        let mut conn = Connection::connect(bind_addr, connect_addr, server_name).await?;
+        let mut conn = Connection::connect(bind_addr, connect_addr, server_name, config).await?;
         let (mut tx, mut rx) = conn.create_stream().await?;
         let mut buf = BytesMut::new();
 
@@ -44,12 +45,18 @@ impl Client {
     }
 
     // `init_payload` needed as we need to let server know what type of stream this is
-    pub async fn publisher(&mut self, topic: impl Into<String>, init_payload: Bytes) -> Result<Publisher, Error> {
+    pub async fn publisher(
+        &mut self,
+        topic: impl Into<String>,
+        init_payload: Bytes,
+    ) -> Result<Publisher, Error> {
         let (mut tx, _) = self.conn.create_stream().await?;
         let topic = topic.into();
 
         let mut buf = BytesMut::new();
-        if let Err(e) = v4::Publish::from_bytes(&topic, mqttbytes::QoS::AtMostOnce, init_payload).write(&mut buf) {
+        if let Err(e) = v4::Publish::from_bytes(&topic, mqttbytes::QoS::AtMostOnce, init_payload)
+            .write(&mut buf)
+        {
             return Err(Error::MQTT(e));
         }
         let _write = tx.write(&buf).await?;
@@ -85,22 +92,20 @@ impl Client {
         }
 
         buf.clear();
-        Ok(Subscriber {
-            rx, tx, buf
-        })
+        Ok(Subscriber { rx, tx, buf })
     }
 }
 
 pub struct Publisher {
     topic: String,
     tx: quinn::SendStream,
-    buf: BytesMut
+    buf: BytesMut,
 }
 
 impl Publisher {
     pub async fn publish(&mut self, payload: Bytes) -> Result<(), Error> {
-        if let Err(e) =
-            v4::Publish::from_bytes(&self.topic, mqttbytes::QoS::AtMostOnce, payload).write(&mut self.buf)
+        if let Err(e) = v4::Publish::from_bytes(&self.topic, mqttbytes::QoS::AtMostOnce, payload)
+            .write(&mut self.buf)
         {
             return Err(Error::MQTT(e));
         }
