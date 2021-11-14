@@ -3,8 +3,6 @@ name = "mquictt"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 bytes = { version = "1", features = ["serde"] }
 flume = "0.10.9"
@@ -16,3 +14,4 @@ rustls-pemfile = "0.2.1"
 thiserror = "1.0.30"
 slab = "0.4.5"
 tokio = { version = "1.13", features = ["rt", "rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
