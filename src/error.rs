@@ -17,7 +17,7 @@ pub enum Error {
     #[error("MQTT Error : {0}")]
     MQTT(mqttbytes::Error),
     #[error("Rustls Error : {0}")]
-    Rustls(#[from] rustls::Error),
+    Rustls(#[from] rustls::TLSError),
     #[error("Tls Error")]
     Tls,
 }

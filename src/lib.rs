@@ -24,7 +24,8 @@ pub(crate) struct QuicServer {
 
 impl QuicServer {
     pub(crate) fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
-        let mut builder = quinn::Endpoint::builder().default_client_config(client_config(config)?);
+        let mut builder = quinn::Endpoint::builder();
+        builder.default_client_config(client_config(&config)?);
         let (_, incoming) = builder.bind(addr)?;
         Ok(QuicServer { config, incoming })
     }
@@ -74,8 +75,8 @@ impl Connection {
     }
 }
 
-fn client_config(config: Arc<Config>) -> Result<ClientConfig, Error> {
-    let client_config = match config.auth {
+fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
+    match &config.auth {
         Some(Auth {
             cert_file: cert_path,
             key_file: key_path,
@@ -102,21 +103,20 @@ fn client_config(config: Arc<Config>) -> Result<ClientConfig, Error> {
             let key = PrivateKey(key);
 
             let ca_file = File::open(ca_path)?;
-            let ca_file = rustls_pemfile::certs(&mut BufReader::new(ca_file))?;
+            let ca_file = &mut BufReader::new(ca_file);
             let mut store = RootCertStore::empty();
-            store.add_parsable_certificates(&ca_file[..]);
+            store.add_pem_file(ca_file);
 
-            Ok(rustls::ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(store)
-                .with_single_cert(certs, key)?)
+            let mut client_config = rustls::ClientConfig::default();
+            client_config.root_store = store;
+            client_config.set_single_client_cert(certs, key)?;
+
+            Ok(ClientConfig {
+                transport: Arc::new(TransportConfig::default()),
+                crypto: Arc::new(client_config),
+            })
         }
 
-        None => Err(Error::Tls),
-    };
-
-    Ok(ClientConfig {
-        transport: Arc::new(TransportConfig::default()),
-        crypto: Arc::new(client_config?),
-    })
+        None => Ok(ClientConfig::default()),
+    }
 }
