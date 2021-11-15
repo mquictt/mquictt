@@ -23,7 +23,7 @@ To create a MQTT server:
 async fn spawn_server() {
     mquictt::server(
         &([127, 0, 0, 1], 1883).into(),
-        mquictt::Config::empty(),
+        mquictt::Config::read(&"server.json").unwrap(),
     )
     .await
     .unwrap();
@@ -32,28 +32,31 @@ async fn spawn_server() {
 
 To create a MQTT client:
 ```rust
-use std::net::SocketAddr;
+use bytes::Bytes;
 
-async fn spawn_client(
-	bind_addr: &SocketAddr,
-	connect_addr: &SocketAddr
-) -> Result<(), mquictt::Error> {
-	// create a client
-	let mut client = mquictt::Client::connect(
-        bind_addr,
-        connect_addr,
+async fn spawn_client() {
+    // create a client
+    let mut client = mquictt::Client::connect(
+        &([127, 0, 0, 1], 2000).into(),
+        &([127, 0, 0, 1], 1883).into(),
         "localhost",
-        "mquictt-client",
+        "0",
+        mquictt::Config::read(&"client.json").unwrap(),
     )
-    .await?;
+    .await.unwrap();
 
-	// create a publisher for a particular topic
-	let mut publisher = client.publisher("hello/world", b"hello".into()).await?;
-	publisher.publish(b"hello again!".into()).await?;
+    // create a publisher for a particular topic
+    let mut publisher = client
+        .publisher("hello/world", Bytes::from("hello"))
+        .await.unwrap();
+    publisher.publish(Bytes::from("hello again!")).await.unwrap();
 
-	// create a subscriber
-	let mut subscriber = client.subscriber("hello/world").await?;
-	println!("{}", str::from_utf8(&subscriber.read()?).unwrap());
+    // create a subscriber
+    let mut subscriber = client.subscriber("hello/world").await.unwrap();
+    let read = subscriber.read().await.unwrap();
+    println!("{}", std::str::from_utf8(&read).unwrap());
+
+    Ok(())
 }
 ```
 

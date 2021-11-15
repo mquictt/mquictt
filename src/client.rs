@@ -97,7 +97,7 @@ impl Client {
 
     /// Creates a new subscribe stream for the given topic from which publishes messages can be
     /// read. See [`Subscriber`] for more details.
-    pub async fn subsriber(&mut self, topic: impl Into<String>) -> Result<Subscriber, Error> {
+    pub async fn subscriber(&mut self, topic: impl Into<String>) -> Result<Subscriber, Error> {
         // create a new stream
         let (mut tx, mut rx) = self.conn.create_stream().await?;
         let mut buf = BytesMut::new();
