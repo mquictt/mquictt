@@ -18,7 +18,6 @@ async fn main() -> Result<(), mquictt::Error> {
     let mut publisher = client
         .publisher("hello/world", Bytes::from("hello"))
         .await?;
-    publisher.flush().await.unwrap();
 
     let mut subscriber = client.subscriber("hello/world").await?;
     publisher.publish(Bytes::from("hello again!")).await?;

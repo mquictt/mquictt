@@ -87,6 +87,8 @@ impl Client {
             return Err(Error::MQTT(e));
         }
         tx.write_all(&buf).await?;
+        debug!("flushed {} bytes", buf.len());
+        buf.clear();
 
         // not waiting for puback as QoS0 at MQTT level
 
@@ -109,6 +111,7 @@ impl Client {
             return Err(Error::MQTT(e));
         }
         let _write = tx.write_all(&buf).await?;
+        debug!("sent SUBSCRIBE to {}", self.conn.remote_addr());
 
         buf.clear();
         // read suback
@@ -170,6 +173,7 @@ impl Publisher {
     /// [`publish()`]: `Publisher::publish`
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.write_all(&self.buf).await?;
+        debug!("flushed {} bytes", self.buf.len());
         self.buf.clear();
         Ok(())
     }
@@ -206,6 +210,7 @@ impl Subscriber {
                 Ok(v4::Packet::Publish(packet)) => return Ok(packet.payload),
                 Ok(_) => continue,
                 Err(mqttbytes::Error::InsufficientBytes(_)) => {
+                    debug!("sub reading from net");
                     let len = recv_stream_read(&mut self.rx, &mut self.buf).await?;
                     debug!("read {} pub bytes", len);
                     continue;

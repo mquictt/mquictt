@@ -171,30 +171,34 @@ async fn handle_publish(
         buf.capacity()
     );
 
-    loop {
+    'outer: loop {
         tokio::select! {
             read = recv_stream_read(&mut rx, &mut buf) => {
                 let len = read?;
                 debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
-                let publish = match v4::read(&mut buf, 1024 * 1024) {
-                    Ok(v4::Packet::Publish(publish)) => publish,
-                    Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
-                    Err(e) => return Err(Error::MQTT(e)),
-                };
+                loop {
+                    let publish = match v4::read(&mut buf, 1024 * 1024) {
+                        Ok(v4::Packet::Publish(publish)) => publish,
+                        Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
+                        Err(e) => return Err(Error::MQTT(e)),
+                    };
 
-                for (slab_id, subsriber) in subscribers.iter() {
-                    let subsriber = subsriber.clone();
-                    let publish = publish.clone();
-                    send_queue.push(async move {
-                        match subsriber.send_async(publish).await {
-                            Ok(_) => None,
-                            Err(e) => Some((slab_id, e)),
-                        }
-                    });
+                    for (slab_id, subsriber) in subscribers.iter() {
+                        let subsriber = subsriber.clone();
+                        let publish = publish.clone();
+                        send_queue.push(async move {
+                            match subsriber.send_async(publish).await {
+                                Ok(_) => None,
+                                Err(e) => Some((slab_id, e)),
+                            }
+                        });
+                        send_queue_empty = false;
+                    }
+
+                    buf.reserve(2048);
                 }
 
-                buf.reserve(2048);
             }
 
             sub_req = sub_req_rx.recv_async() => {
@@ -204,15 +208,17 @@ async fn handle_publish(
                     Err(_) => break,
                 };
                 subscribers.insert(Arc::new(data_tx));
+                debug!("{} :: {} [PS] recved sub req, total = {}", remote_addr, rx.id(), subscribers.len());
             }
 
             send_opt = send_queue.next(), if !send_queue_empty => {
                 match send_opt {
-                    Some(Some((slab_id, _e))) => {
+                    Some(Some((slab_id, e))) => {
                         subscribers.remove(slab_id);
+                        error!("{} :: {} [PS] 1 sub removed, total = {} reason = {}", remote_addr, rx.id(), subscribers.len(), e);
                     },
-                    Some(None) => {}
-                    None => send_queue_empty = false,
+                    Some(None) => debug!("sent some data // remove this later"),
+                    None => send_queue_empty = true,
                 }
             }
         }
@@ -251,8 +257,8 @@ async fn handle_subscribe(
                 if let Err(e) = data.write(&mut send_buf) {
                     return Err(Error::MQTT(e));
                 };
+                debug!("{} :: {} [SS] recved pub len = {}", remote_addr, rx.id(), send_buf.len());
                 tx.write_all(&send_buf).await?;
-                // SAFETY: we are still unable to read uninit data
                 send_buf.clear();
             }
 
