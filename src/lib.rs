@@ -13,6 +13,7 @@ use rustls::{AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, Ro
 mod client;
 mod config;
 mod error;
+mod protocol;
 mod server;
 pub use client::*;
 pub use config::Config;

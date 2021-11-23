@@ -10,10 +10,10 @@ use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{recv_stream_read, Config, Connection, Error, QuicServer};
+use crate::{recv_stream_read, Config, Connection, Error, QuicServer, protocol::Publish};
 
-type DataTx = flume::Sender<v4::Publish>;
-type DataRx = flume::Receiver<v4::Publish>;
+type DataTx = flume::Sender<Publish>;
+type DataRx = flume::Receiver<Publish>;
 
 type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
@@ -178,9 +178,9 @@ async fn handle_publish(
                 debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
                 loop {
-                    let publish = match v4::read(&mut buf, 1024 * 1024) {
-                        Ok(v4::Packet::Publish(publish)) => publish,
-                        Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
+                    let publish = match Publish::read(&mut buf) {
+                        Ok(publish) => publish,
+                        Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
                         Err(e) => return Err(Error::MQTT(e)),
                     };
 
@@ -245,7 +245,6 @@ async fn handle_subscribe(
         return Err(Error::MQTT(e));
     }
     tx.write_all(&send_buf).await?;
-    // SAFETY: we are still unable to read uninit data
     send_buf.clear();
     debug!("{} :: {} [SS] SUBACK sent", remote_addr, rx.id());
 
@@ -254,12 +253,8 @@ async fn handle_subscribe(
             data_res = data_rx.recv_async() => {
                 let data = data_res?;
                 // TODO: use try_recv in loop for buffering
-                if let Err(e) = data.write(&mut send_buf) {
-                    return Err(Error::MQTT(e));
-                };
                 debug!("{} :: {} [SS] recved pub len = {}", remote_addr, rx.id(), send_buf.len());
-                tx.write_all(&send_buf).await?;
-                send_buf.clear();
+                tx.write_all(&data.0).await?;
             }
 
             read = recv_stream_read(&mut rx, &mut recv_buf) => {
