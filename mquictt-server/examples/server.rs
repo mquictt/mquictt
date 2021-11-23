@@ -2,9 +2,9 @@
 async fn main() {
     pretty_env_logger::init();
 
-    mquictt::server(
+    mquictt_server::server(
         &([127, 0, 0, 1], 1883).into(),
-        mquictt::Config::read(&"examples/server.json").unwrap(),
+        mquictt_server::Config::read(&"mquictt-server/examples/server.json").unwrap(),
     )
     .await
     .unwrap();

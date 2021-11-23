@@ -1,16 +1,16 @@
 use bytes::Bytes;
 
 #[tokio::main]
-async fn main() -> Result<(), mquictt::Error> {
+async fn main() -> Result<(), mquictt_client::Error> {
     pretty_env_logger::init();
 
     // create a client
-    let mut client = mquictt::Client::connect(
+    let mut client = mquictt_client::Client::connect(
         &([127, 0, 0, 1], 2000).into(),
         &([127, 0, 0, 1], 1883).into(),
         "localhost",
         "0",
-        mquictt::Config::read(&"examples/client.json").unwrap(),
+        mquictt_client::Config::read(&"mquictt-client/examples/client.json").unwrap(),
     )
     .await?;
 
