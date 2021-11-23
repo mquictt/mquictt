@@ -207,13 +207,13 @@ pub(crate) async fn recv_stream_read(
     // SAFETY: we trust qiunn's implementation to not misuse the array, and we advance the
     // `BytesMut`'s cursor to proper length as well
     let dst = unsafe { bytesmut_as_arr(buf) };
-    let len = match rx.read(dst).await? {
+    match rx.read(dst).await? {
         Some(len) => {
             unsafe { buf.advance_mut(len) };
             Ok(len)
         }
         None => Err(Error::ConnectionBroken),
-    };
+    }
 }
 
 /// Reads from [`quinn::RecvStream`] into a [`BytesMut`].

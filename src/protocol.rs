@@ -1,3 +1,6 @@
+//! Basically a copy of `mqttbytes`'s publish packet parsing, just returns parsed publish as a
+//! wrapped arount `Bytes` for cheap cloning accross threads.
+
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone)]

@@ -10,7 +10,7 @@ use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{recv_stream_read, Config, Connection, Error, QuicServer, protocol::Publish};
+use crate::{protocol::Publish, recv_stream_read, Config, Connection, Error, QuicServer};
 
 type DataTx = flume::Sender<Publish>;
 type DataRx = flume::Receiver<Publish>;
@@ -79,14 +79,15 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
     debug!("sent CONNACK packet to {}", conn.remote_addr());
 
     buf.clear();
+    let remote_addr = conn.remote_addr();
     loop {
         let (tx, rx) = conn.accept().await?;
-        tokio::spawn(handle_new_stream(
-            tx,
-            rx,
-            mapper.clone(),
-            conn.remote_addr(),
-        ));
+        let mapper = mapper.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_new_stream(tx, rx, mapper, remote_addr).await {
+                error!("{}", e);
+            }
+        });
 
         // tokio::select! {
         //     streams_result = conn.accept() => {
