@@ -33,7 +33,6 @@ impl QuicServer {
         let mut builder = quinn::Endpoint::builder();
         builder.listen(server_config(&config)?);
         let (endpoint, incoming) = builder.bind(addr)?;
-        info!("QUIC server launched at {}", endpoint.local_addr().unwrap());
         Ok(QuicServer {
             config,
             incoming,

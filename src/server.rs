@@ -26,6 +26,7 @@ type Mapper = Arc<RwLock<HashMap<String, SubReqTx>>>;
 /// ```
 pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error> {
     let mut listener = QuicServer::new(config, addr)?;
+    info!("QUIC server launched at {}", listener.local_addr());
     let mapper: Mapper = Arc::new(RwLock::new(HashMap::default()));
 
     loop {
@@ -61,17 +62,19 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
             Err(e) => return Err(Error::MQTT(e)),
         }
     }
+    debug!("recved CONNECT packet from {}", conn.remote_addr());
 
     buf.clear();
     if let Err(e) = v4::ConnAck::new(v4::ConnectReturnCode::Success, false).write(&mut buf) {
         return Err(Error::MQTT(e));
     }
     let _write = tx.write_all(&buf).await?;
+    debug!("sent CONNACK packet to {}", conn.remote_addr());
 
     buf.clear();
     loop {
         let (tx, rx) = conn.accept().await?;
-        tokio::spawn(handle_new_stream(tx, rx, mapper.clone()));
+        tokio::spawn(handle_new_stream(tx, rx, mapper.clone(), conn.remote_addr()));
 
         // tokio::select! {
         //     streams_result = conn.accept() => {
@@ -86,6 +89,7 @@ async fn handle_new_stream(
     tx: quinn::SendStream,
     mut rx: quinn::RecvStream,
     mapper: Mapper,
+    remote_addr: SocketAddr,
 ) -> Result<(), Error> {
     let mut buf = BytesMut::new();
 
@@ -100,7 +104,8 @@ async fn handle_new_stream(
                     let mut map_writer = mapper.write().unwrap();
                     map_writer.insert(topic, sub_req_tx);
                 }
-                return handle_publish(rx, sub_req_rx, buf).await;
+                debug!("new PUBLISH stream addr = {} id = {}", remote_addr, rx.id());
+                return handle_publish(rx, sub_req_rx, buf, remote_addr).await;
             }
             Ok(v4::Packet::Subscribe(v4::Subscribe { filters, .. })) => {
                 // only handling a single subsribe for now, as client only sends 1 subscribe at a
@@ -119,7 +124,8 @@ async fn handle_new_stream(
                     // waiting blockingly as we are not allowed to await when holding a lock
                     sub_req_tx.send(data_tx)?;
                 }
-                return handle_subscribe(tx, rx, data_rx).await;
+                debug!("new SUBSCRIBE stream addr = {} id = {}", remote_addr, rx.id());
+                return handle_subscribe(tx, rx, data_rx, remote_addr).await;
             }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
@@ -135,6 +141,7 @@ async fn handle_publish(
     mut rx: quinn::RecvStream,
     sub_req_rx: SubReqRx,
     mut buf: BytesMut,
+    remote_addr: SocketAddr,
 ) -> Result<(), Error> {
     let mut subscribers: Slab<Arc<DataTx>> = Slab::with_capacity(1024);
     let mut send_queue = FuturesUnordered::new();
@@ -143,10 +150,11 @@ async fn handle_publish(
     loop {
         tokio::select! {
             read = rx.read(&mut buf) => {
-                let _len = match read? {
+                let len = match read? {
                     Some(len) => len,
                     None => break,
                 };
+                debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
                 let publish = match v4::read(&mut buf, 1024 * 1024) {
                     Ok(v4::Packet::Publish(publish)) => publish,
@@ -194,6 +202,7 @@ async fn handle_subscribe(
     mut tx: quinn::SendStream,
     mut rx: quinn::RecvStream,
     data_rx: DataRx,
+    remote_addr: SocketAddr,
 ) -> Result<(), Error> {
     let mut buf = BytesMut::new();
     let suback = v4::SubAck::new(0, vec![v4::SubscribeReasonCode::Success(mqttbytes::QoS::AtMostOnce)]);
@@ -208,8 +217,13 @@ async fn handle_subscribe(
                 };
                 tx.write_all(&buf).await?;
             }
+
             res = rx.read(&mut buf) => {
-                res?;
+                let len = match res? {
+                    Some(v) => v,
+                    None => continue,
+                };
+                debug!("{} :: {} [SS] read {} bytes", remote_addr, rx.id(), len);
                 match v4::read(&mut buf, 1024 * 1024) {
                     Ok(v4::Packet::Unsubscribe(_)) => {
                         if let Err(e) = suback.write(&mut buf) {
