@@ -203,18 +203,17 @@ fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
 pub(crate) async fn recv_stream_read(
     rx: &mut quinn::RecvStream,
     buf: &mut BytesMut,
-) -> Result<usize, quinn::ReadError> {
+) -> Result<usize, Error> {
     // SAFETY: we trust qiunn's implementation to not misuse the array, and we advance the
     // `BytesMut`'s cursor to proper length as well
     let dst = unsafe { bytesmut_as_arr(buf) };
     let len = match rx.read(dst).await? {
         Some(len) => {
             unsafe { buf.advance_mut(len) };
-            len
-        },
-        None => 0
+            Ok(len)
+        }
+        None => Err(Error::ConnectionBroken),
     };
-    Ok(len)
 }
 
 /// Reads from [`quinn::RecvStream`] into a [`BytesMut`].
