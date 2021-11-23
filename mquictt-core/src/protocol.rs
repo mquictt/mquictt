@@ -4,10 +4,10 @@
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone)]
-pub struct Publish(pub(crate) Bytes);
+pub struct Publish(pub Bytes);
 
 impl Publish {
-    pub(crate) fn read(stream: &mut BytesMut) -> Result<Self, mqttbytes::Error> {
+    pub fn read(stream: &mut BytesMut) -> Result<Self, mqttbytes::Error> {
         let mut iter = stream.iter();
         let stream_len = iter.len();
         if stream_len < 2 {
@@ -35,7 +35,7 @@ impl Publish {
     }
 }
 
-fn length(stream: std::slice::Iter<u8>) -> Result<(usize, usize), mqttbytes::Error> {
+pub fn length(stream: std::slice::Iter<u8>) -> Result<(usize, usize), mqttbytes::Error> {
     let mut len: usize = 0;
     let mut len_len = 0;
     let mut done = false;

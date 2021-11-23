@@ -4,7 +4,8 @@ use bytes::{Bytes, BytesMut};
 use log::*;
 use mqttbytes::v4;
 
-use crate::{recv_stream_read, Config, Connection, Error};
+use mquictt_core::{recv_stream_read, Connection};
+pub use mquictt_core::{Error, Config};
 
 /// Used to initiate connection to a MQTT server over QUIC.
 ///

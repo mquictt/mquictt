@@ -5,12 +5,13 @@ use std::{
 };
 
 use bytes::BytesMut;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::stream::{FuturesUnordered, StreamExt};
 use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{protocol::Publish, recv_stream_read, Config, Connection, Error, QuicServer};
+use mquictt_core::{Publish, recv_stream_read, Connection, QuicServer};
+pub use mquictt_core::{Config, Error};
 
 type DataTx = flume::Sender<Publish>;
 type DataRx = flume::Receiver<Publish>;

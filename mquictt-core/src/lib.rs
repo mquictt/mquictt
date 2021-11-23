@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../../README.md")]
 
 use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
@@ -10,22 +10,19 @@ use log::*;
 use quinn::{ClientConfig, ServerConfig, TransportConfig};
 use rustls::{AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore};
 
-mod client;
 mod config;
 mod error;
 mod protocol;
-mod server;
-pub use client::*;
 pub use config::Config;
 pub use error::Error;
-pub use server::*;
+pub use protocol::Publish;
 
-pub(crate) struct Connection {
+pub struct Connection {
     conn: quinn::Connection,
     streams: quinn::IncomingBiStreams,
 }
 
-pub(crate) struct QuicServer {
+pub struct QuicServer {
     #[allow(dead_code)]
     config: Arc<Config>,
     incoming: quinn::Incoming,
@@ -33,7 +30,7 @@ pub(crate) struct QuicServer {
 }
 
 impl QuicServer {
-    pub(crate) fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
+    pub fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
         let mut builder = quinn::Endpoint::builder();
         builder.listen(server_config(&config)?);
         let (endpoint, incoming) = builder.bind(addr)?;
@@ -44,7 +41,7 @@ impl QuicServer {
         })
     }
 
-    pub(crate) async fn accept(&mut self) -> Result<Connection, Error> {
+    pub async fn accept(&mut self) -> Result<Connection, Error> {
         let quinn::NewConnection {
             connection: conn,
             bi_streams: streams,
@@ -56,16 +53,16 @@ impl QuicServer {
         Ok(Connection { conn, streams })
     }
 
-    pub(crate) fn local_addr(&self) -> SocketAddr {
+    pub fn local_addr(&self) -> SocketAddr {
         self.endpoint.local_addr().unwrap()
     }
 }
 
 #[allow(dead_code)]
-pub(crate) type QuicClient = Connection;
+pub type QuicClient = Connection;
 
 impl Connection {
-    pub(crate) async fn connect(
+    pub async fn connect(
         bind_addr: &SocketAddr,
         connect_addr: &SocketAddr,
         server_name: &str,
@@ -83,20 +80,20 @@ impl Connection {
         Ok(Connection { conn, streams })
     }
 
-    pub(crate) async fn create_stream(
+    pub async fn create_stream(
         &mut self,
     ) -> Result<(quinn::SendStream, quinn::RecvStream), Error> {
         Ok(self.conn.open_bi().await?)
     }
 
-    pub(crate) async fn accept(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream), Error> {
+    pub async fn accept(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream), Error> {
         match self.streams.next().await {
             Some(s) => Ok(s?),
             None => Err(Error::ConnectionBroken),
         }
     }
 
-    pub(crate) fn remote_addr(&self) -> SocketAddr {
+    pub fn remote_addr(&self) -> SocketAddr {
         self.conn.remote_address()
     }
 }
@@ -200,7 +197,7 @@ fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
 }
 
 #[inline(always)]
-pub(crate) async fn recv_stream_read(
+pub async fn recv_stream_read(
     rx: &mut quinn::RecvStream,
     buf: &mut BytesMut,
 ) -> Result<usize, Error> {
@@ -225,6 +222,6 @@ pub(crate) async fn recv_stream_read(
 ///
 /// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
 #[inline(always)]
-pub(crate) unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {
+pub unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {
     &mut *(buf.chunk_mut() as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
 }
