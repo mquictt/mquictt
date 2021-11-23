@@ -18,20 +18,17 @@ async fn main() -> Result<(), mquictt::Error> {
     let mut publisher = client
         .publisher("hello/world", Bytes::from("hello"))
         .await?;
-    publisher.publish(Bytes::from("hello again!")).await?;
+    publisher.flush().await.unwrap();
 
     let mut subscriber = client.subscriber("hello/world").await?;
-    let handle = tokio::spawn(async move {
-        // create a subscriber
-        println!(
-            "{}",
-            std::str::from_utf8(&subscriber.read().await?).unwrap()
-        );
+    publisher.publish(Bytes::from("hello again!")).await?;
+    publisher.flush().await.unwrap();
 
-        Result::<(), mquictt::Error>::Ok(())
-    });
-
-    handle.await.unwrap().unwrap();
+    // create a subscriber
+    println!(
+        "{}",
+        std::str::from_utf8(&subscriber.read().await?).unwrap()
+    );
 
     Ok(())
 }

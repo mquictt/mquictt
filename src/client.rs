@@ -112,7 +112,7 @@ impl Client {
 
         buf.clear();
         // read suback
-                    recv_stream_read(&mut rx, &mut buf).await?;
+        recv_stream_read(&mut rx, &mut buf).await?;
         loop {
             match v4::read(&mut buf, 1024 * 1024) {
                 Ok(v4::Packet::SubAck(_)) => break,
@@ -124,6 +124,7 @@ impl Client {
                 Err(e) => return Err(Error::MQTT(e)),
             }
         }
+        debug!("recved SUBACK from {}", self.conn.remote_addr());
 
         // same buffer transfered as it might contain data for some publishes
         Ok(Subscriber { rx, tx, buf })
@@ -205,7 +206,8 @@ impl Subscriber {
                 Ok(v4::Packet::Publish(packet)) => return Ok(packet.payload),
                 Ok(_) => continue,
                 Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                    recv_stream_read(&mut self.rx, &mut self.buf).await?;
+                    let len = recv_stream_read(&mut self.rx, &mut self.buf).await?;
+                    debug!("read {} pub bytes", len);
                     continue;
                 }
                 Err(e) => return Err(Error::MQTT(e)),

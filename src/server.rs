@@ -162,6 +162,14 @@ async fn handle_publish(
     let mut subscribers: Slab<Arc<DataTx>> = Slab::with_capacity(1024);
     let mut send_queue = FuturesUnordered::new();
     let mut send_queue_empty = true;
+    buf.reserve(2048);
+
+    debug!(
+        "{} :: {} [PS] publish read loop launched, cap = {}",
+        remote_addr,
+        rx.id(),
+        buf.capacity()
+    );
 
     loop {
         tokio::select! {
@@ -185,6 +193,8 @@ async fn handle_publish(
                         }
                     });
                 }
+
+                buf.reserve(2048);
             }
 
             sub_req = sub_req_rx.recv_async() => {
@@ -217,34 +227,40 @@ async fn handle_subscribe(
     data_rx: DataRx,
     remote_addr: SocketAddr,
 ) -> Result<(), Error> {
-    let mut buf = BytesMut::new();
-    let suback = v4::SubAck::new(
+    let mut recv_buf = BytesMut::with_capacity(2048);
+    let mut send_buf = BytesMut::with_capacity(2048);
+
+    if let Err(e) = v4::SubAck::new(
         0,
         vec![v4::SubscribeReasonCode::Success(mqttbytes::QoS::AtMostOnce)],
-    );
+    )
+    .write(&mut send_buf)
+    {
+        return Err(Error::MQTT(e));
+    }
+    tx.write_all(&send_buf).await?;
+    // SAFETY: we are still unable to read uninit data
+    send_buf.clear();
+    debug!("{} :: {} [SS] SUBACK sent", remote_addr, rx.id());
 
     loop {
         tokio::select! {
             data_res = data_rx.recv_async() => {
                 let data = data_res?;
                 // TODO: use try_recv in loop for buffering
-                if let Err(e) = data.write(&mut buf) {
+                if let Err(e) = data.write(&mut send_buf) {
                     return Err(Error::MQTT(e));
                 };
-                tx.write_all(&buf).await?;
+                tx.write_all(&send_buf).await?;
+                // SAFETY: we are still unable to read uninit data
+                send_buf.clear();
             }
 
-            read = recv_stream_read(&mut rx, &mut buf) => {
+            read = recv_stream_read(&mut rx, &mut recv_buf) => {
                 let len = read?;
                 debug!("{} :: {} [SS] read {} bytes", remote_addr, rx.id(), len);
-                match v4::read(&mut buf, 1024 * 1024) {
-                    Ok(v4::Packet::Unsubscribe(_)) => {
-                        if let Err(e) = suback.write(&mut buf) {
-                            return Err(Error::MQTT(e));
-                        };
-                        tx.write_all(&buf).await?;
-                        break
-                    },
+                match v4::read(&mut recv_buf, 1024 * 1024) {
+                    Ok(v4::Packet::Unsubscribe(_)) => break,
                     Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
                     Err(e) => return Err(Error::MQTT(e)),
                 };
