@@ -1,10 +1,10 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
-// use log::*;
+use log::*;
 use mqttbytes::v4;
 
-use crate::{Config, Connection, Error};
+use crate::{recv_stream_read, Config, Connection, Error};
 
 /// Used to initiate connection to a MQTT server over QUIC.
 ///
@@ -37,30 +37,32 @@ impl Client {
     ) -> Result<Self, Error> {
         // create a connection
         let mut conn = Connection::connect(bind_addr, connect_addr, server_name, config).await?;
+        info!("connected to {}", conn.remote_addr());
         // stream to send the mqtt connect packet
         let (mut tx, mut rx) = conn.create_stream().await?;
-        let mut buf = BytesMut::new();
+        let mut buf = BytesMut::with_capacity(2048);
 
         if let Err(e) = v4::Connect::new(id).write(&mut buf) {
             return Err(Error::MQTT(e));
         }
-        let _write = tx.write(&buf).await?;
+        let write = tx.write(&buf).await?;
+        debug!("sent CONNECT to {}, len = {}", conn.remote_addr(), write);
 
         buf.clear();
-        // read the connack packet
-        rx.read(&mut buf).await?;
+        recv_stream_read(&mut rx, &mut buf).await?;
         loop {
             match v4::read(&mut buf, 1024 * 1024) {
                 Ok(v4::Packet::ConnAck(_)) => break,
                 Ok(_) => continue,
                 // read more bytes in case current bytes not enough
                 Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                    rx.read(&mut buf).await?;
+                    recv_stream_read(&mut rx, &mut buf).await?;
                     continue;
                 }
                 Err(e) => return Err(Error::MQTT(e)),
             }
         }
+        debug!("recved CONNACK from {}", conn.remote_addr());
 
         Ok(Client { conn })
     }
@@ -84,7 +86,7 @@ impl Client {
         {
             return Err(Error::MQTT(e));
         }
-        let _write = tx.write_all(&buf).await?;
+        tx.write_all(&buf).await?;
 
         // not waiting for puback as QoS0 at MQTT level
 
@@ -110,13 +112,13 @@ impl Client {
 
         buf.clear();
         // read suback
-        rx.read(&mut buf).await?;
+                    recv_stream_read(&mut rx, &mut buf).await?;
         loop {
             match v4::read(&mut buf, 1024 * 1024) {
                 Ok(v4::Packet::SubAck(_)) => break,
                 Ok(_) => continue,
                 Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                    rx.read(&mut buf).await?;
+                    recv_stream_read(&mut rx, &mut buf).await?;
                     continue;
                 }
                 Err(e) => return Err(Error::MQTT(e)),
@@ -177,7 +179,6 @@ impl Publisher {
     }
 }
 
-
 /// Subsriber to a single topic.
 ///
 /// Note that callers explcitly need to call [`flush()`] to flush all the publishes to network.
@@ -204,7 +205,7 @@ impl Subscriber {
                 Ok(v4::Packet::Publish(packet)) => return Ok(packet.payload),
                 Ok(_) => continue,
                 Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                    self.rx.read(&mut self.buf).await?;
+                    recv_stream_read(&mut self.rx, &mut self.buf).await?;
                     continue;
                 }
                 Err(e) => return Err(Error::MQTT(e)),

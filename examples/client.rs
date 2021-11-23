@@ -14,20 +14,24 @@ async fn main() -> Result<(), mquictt::Error> {
     )
     .await?;
 
-    dbg!();
-
     // create a publisher for a particular topic
     let mut publisher = client
         .publisher("hello/world", Bytes::from("hello"))
         .await?;
     publisher.publish(Bytes::from("hello again!")).await?;
 
-    // create a subscriber
     let mut subscriber = client.subscriber("hello/world").await?;
-    println!(
-        "{}",
-        std::str::from_utf8(&subscriber.read().await?).unwrap()
-    );
+    let handle = tokio::spawn(async move {
+        // create a subscriber
+        println!(
+            "{}",
+            std::str::from_utf8(&subscriber.read().await?).unwrap()
+        );
+
+        Result::<(), mquictt::Error>::Ok(())
+    });
+
+    handle.await.unwrap().unwrap();
 
     Ok(())
 }

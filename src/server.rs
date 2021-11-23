@@ -10,7 +10,7 @@ use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use crate::{Config, Connection, Error, QuicServer};
+use crate::{recv_stream_read, Config, Connection, Error, QuicServer};
 
 type DataTx = flume::Sender<v4::Publish>;
 type DataRx = flume::Receiver<v4::Publish>;
@@ -34,8 +34,8 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
             Ok(conn) => conn,
             Err(Error::ConnectionBroken) => {
                 log::warn!("conn broker {}", listener.local_addr());
-                return Ok(())
-            },
+                return Ok(());
+            }
             e => e?,
         };
         let mapper = mapper.clone();
@@ -46,23 +46,30 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
 }
 
 async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), Error> {
+    debug!("connection handler spawned for {}", conn.remote_addr());
     let (mut tx, mut rx) = conn.accept().await?;
-    let mut buf = BytesMut::new();
+    debug!("stream accepted for {}", conn.remote_addr());
+    let mut buf = BytesMut::with_capacity(2048);
 
-    rx.read(&mut buf).await?;
+    let mut len = recv_stream_read(&mut rx, &mut buf).await?;
     loop {
         match v4::read(&mut buf, 1024 * 1024) {
             // TODO: check duplicate id
             Ok(v4::Packet::Connect(_)) => break,
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                rx.read(&mut buf).await?;
+                len += recv_stream_read(&mut rx, &mut buf).await?;
+                debug!("recv CONNECT loop len = {}", len);
                 continue;
             }
             Err(e) => return Err(Error::MQTT(e)),
         }
     }
-    debug!("recved CONNECT packet from {}", conn.remote_addr());
+    debug!(
+        "recved CONNECT packet from {}, len = {}",
+        conn.remote_addr(),
+        len
+    );
 
     buf.clear();
     if let Err(e) = v4::ConnAck::new(v4::ConnectReturnCode::Success, false).write(&mut buf) {
@@ -74,7 +81,12 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
     buf.clear();
     loop {
         let (tx, rx) = conn.accept().await?;
-        tokio::spawn(handle_new_stream(tx, rx, mapper.clone(), conn.remote_addr()));
+        tokio::spawn(handle_new_stream(
+            tx,
+            rx,
+            mapper.clone(),
+            conn.remote_addr(),
+        ));
 
         // tokio::select! {
         //     streams_result = conn.accept() => {
@@ -91,9 +103,9 @@ async fn handle_new_stream(
     mapper: Mapper,
     remote_addr: SocketAddr,
 ) -> Result<(), Error> {
-    let mut buf = BytesMut::new();
+    let mut buf = BytesMut::with_capacity(2048);
 
-    rx.read(&mut buf).await?;
+    recv_stream_read(&mut rx, &mut buf).await?;
     loop {
         match v4::read(&mut buf, 1024 * 1024) {
             Ok(v4::Packet::Publish(v4::Publish { topic, .. })) => {
@@ -124,12 +136,16 @@ async fn handle_new_stream(
                     // waiting blockingly as we are not allowed to await when holding a lock
                     sub_req_tx.send(data_tx)?;
                 }
-                debug!("new SUBSCRIBE stream addr = {} id = {}", remote_addr, rx.id());
+                debug!(
+                    "new SUBSCRIBE stream addr = {} id = {}",
+                    remote_addr,
+                    rx.id()
+                );
                 return handle_subscribe(tx, rx, data_rx, remote_addr).await;
             }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
-                rx.read(&mut buf).await?;
+                recv_stream_read(&mut rx, &mut buf).await?;
                 continue;
             }
             Err(e) => return Err(Error::MQTT(e)),
@@ -149,11 +165,8 @@ async fn handle_publish(
 
     loop {
         tokio::select! {
-            read = rx.read(&mut buf) => {
-                let len = match read? {
-                    Some(len) => len,
-                    None => break,
-                };
+            read = recv_stream_read(&mut rx, &mut buf) => {
+                let len = read?;
                 debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
                 let publish = match v4::read(&mut buf, 1024 * 1024) {
@@ -205,7 +218,10 @@ async fn handle_subscribe(
     remote_addr: SocketAddr,
 ) -> Result<(), Error> {
     let mut buf = BytesMut::new();
-    let suback = v4::SubAck::new(0, vec![v4::SubscribeReasonCode::Success(mqttbytes::QoS::AtMostOnce)]);
+    let suback = v4::SubAck::new(
+        0,
+        vec![v4::SubscribeReasonCode::Success(mqttbytes::QoS::AtMostOnce)],
+    );
 
     loop {
         tokio::select! {
@@ -218,11 +234,8 @@ async fn handle_subscribe(
                 tx.write_all(&buf).await?;
             }
 
-            res = rx.read(&mut buf) => {
-                let len = match res? {
-                    Some(v) => v,
-                    None => continue,
-                };
+            read = recv_stream_read(&mut rx, &mut buf) => {
+                let len = read?;
                 debug!("{} :: {} [SS] read {} bytes", remote_addr, rx.id(), len);
                 match v4::read(&mut buf, 1024 * 1024) {
                     Ok(v4::Packet::Unsubscribe(_)) => {

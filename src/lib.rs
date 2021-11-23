@@ -2,8 +2,10 @@
 
 use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
 
+use bytes::{BufMut, BytesMut};
 use config::Auth;
 use futures::StreamExt;
+#[allow(unused_imports)]
 use log::*;
 use quinn::{ClientConfig, ServerConfig, TransportConfig};
 use rustls::{AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore};
@@ -23,6 +25,7 @@ pub(crate) struct Connection {
 }
 
 pub(crate) struct QuicServer {
+    #[allow(dead_code)]
     config: Arc<Config>,
     incoming: quinn::Incoming,
     endpoint: quinn::Endpoint,
@@ -71,13 +74,11 @@ impl Connection {
         builder.default_client_config(client_config(&config)?);
         let (endpoint, _) = builder.bind(bind_addr)?;
 
-        info!("connecting to {}", connect_addr);
         let quinn::NewConnection {
             connection: conn,
             bi_streams: streams,
             ..
         } = endpoint.connect(connect_addr, server_name)?.await?;
-        info!("connected to {}", conn.remote_address());
         Ok(Connection { conn, streams })
     }
 
@@ -195,4 +196,35 @@ fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
 
         None => Ok(ServerConfig::default()),
     }
+}
+
+#[inline(always)]
+pub(crate) async fn recv_stream_read(
+    rx: &mut quinn::RecvStream,
+    buf: &mut BytesMut,
+) -> Result<usize, quinn::ReadError> {
+    // SAFETY: we trust qiunn's implementation to not misuse the array, and we advance the
+    // `BytesMut`'s cursor to proper length as well
+    let dst = unsafe { bytesmut_as_arr(buf) };
+    let len = match rx.read(dst).await? {
+        Some(len) => {
+            unsafe { buf.advance_mut(len) };
+            len
+        },
+        None => 0
+    };
+    Ok(len)
+}
+
+/// Reads from [`quinn::RecvStream`] into a [`BytesMut`].
+///
+/// Converts the [`BytesMut`] to `&mut [u8]`, with the length of returned array being equal to the
+/// remaining capacity of the `BytesMut` as determined by [`bytes::BufMut::has_remaining_mut()`].
+///
+/// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()]`.
+///
+/// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
+#[inline(always)]
+pub(crate) unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {
+    &mut *(buf.chunk_mut() as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
 }
