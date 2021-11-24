@@ -1,20 +1,20 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
-use bytes::BytesMut;
+use bytes::{BytesMut, Bytes};
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use mquictt_core::{Publish, recv_stream_read, Connection, QuicServer};
+use mquictt_core::{recv_stream_read, Connection, MQTTRead, QuicServer};
 pub use mquictt_core::{Config, Error};
 
-type DataTx = flume::Sender<Publish>;
-type DataRx = flume::Receiver<Publish>;
+type DataTx = flume::Sender<Bytes>;
+type DataRx = flume::Receiver<Bytes>;
 
 type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
@@ -29,6 +29,7 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
     let mut listener = QuicServer::new(config, addr)?;
     info!("QUIC server launched at {}", listener.local_addr());
     let mapper: Mapper = Arc::new(RwLock::new(HashMap::default()));
+    let conns_list = Arc::new(Mutex::new(HashSet::default()));
 
     loop {
         let conn = match listener.accept().await {
@@ -39,24 +40,26 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
             }
             e => e?,
         };
-        let mapper = mapper.clone();
-
         info!("accepted conn from {}", conn.remote_addr());
-        tokio::spawn(connection_handler(conn, mapper));
+        tokio::spawn(connection_handler(conn, conns_list.clone(), mapper.clone()));
     }
 }
 
-async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), Error> {
+async fn connection_handler(
+    mut conn: Connection,
+    conns_list: Arc<Mutex<HashSet<String>>>,
+    mapper: Mapper,
+) -> Result<(), Error> {
     debug!("connection handler spawned for {}", conn.remote_addr());
     let (mut tx, mut rx) = conn.accept().await?;
     debug!("stream accepted for {}", conn.remote_addr());
     let mut buf = BytesMut::with_capacity(2048);
 
     let mut len = recv_stream_read(&mut rx, &mut buf).await?;
-    loop {
+    let connect = loop {
         match v4::read(&mut buf, 1024 * 1024) {
             // TODO: check duplicate id
-            Ok(v4::Packet::Connect(_)) => break,
+            Ok(v4::Packet::Connect(connect)) => break connect,
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
                 len += recv_stream_read(&mut rx, &mut buf).await?;
@@ -65,7 +68,14 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
             }
             Err(e) => return Err(Error::MQTT(e)),
         }
-    }
+    };
+
+    let client_id = connect.client_id;
+    let _old_con = {
+        let mut conns_list_lock = conns_list.lock().unwrap();
+        !conns_list_lock.insert(client_id.clone())
+    };
+
     debug!(
         "recved CONNECT packet from {}, len = {}",
         conn.remote_addr(),
@@ -180,8 +190,9 @@ async fn handle_publish(
                 debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
                 loop {
-                    let publish = match Publish::read(&mut buf) {
-                        Ok(publish) => publish,
+                    let publish = match MQTTRead::read(&mut buf) {
+                        Ok(MQTTRead::Publish(bytes)) => bytes,
+                        Ok(MQTTRead::Disconnect) => break 'outer,
                         Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
                         Err(e) => return Err(Error::MQTT(e)),
                     };
@@ -256,14 +267,14 @@ async fn handle_subscribe(
                 let data = data_res?;
                 // TODO: use try_recv in loop for buffering
                 debug!("{} :: {} [SS] recved pub len = {}", remote_addr, rx.id(), send_buf.len());
-                tx.write_all(&data.0).await?;
+                tx.write_all(&data).await?;
             }
 
             read = recv_stream_read(&mut rx, &mut recv_buf) => {
                 let len = read?;
                 debug!("{} :: {} [SS] read {} bytes", remote_addr, rx.id(), len);
                 match v4::read(&mut recv_buf, 1024 * 1024) {
-                    Ok(v4::Packet::Unsubscribe(_)) => break,
+                    Ok(v4::Packet::Unsubscribe(_) | v4::Packet::Disconnect) => break,
                     Ok(_) | Err(mqttbytes::Error::InsufficientBytes(_)) => continue,
                     Err(e) => return Err(Error::MQTT(e)),
                 };

@@ -36,13 +36,13 @@ pub enum Error {
     MissingCertificate,
     // Unable to send publish packets to the subscriber.
     #[error("Sub Request Tx Error : {0}")]
-    PubDataTx(#[from] flume::SendError<crate::protocol::Publish>),
+    PubDataTx(#[from] flume::SendError<bytes::Bytes>),
     // Unable to recv publish packets from the publisher.
     #[error("Pub Data Recv Error : {0}")]
     PubDataRx(#[from] flume::RecvError),
     /// Unable to register the subsriber with the corresponding publisher.
     #[error("Sub Request Tx Error : {0}")]
-    SubReqTx(#[from] flume::SendError<flume::Sender<crate::protocol::Publish>>),
+    SubReqTx(#[from] flume::SendError<flume::Sender<bytes::Bytes>>),
     /// Unable to receive subscription requests at the publisher end.
     #[error("Sub Request Tx Error : {0}")]
     SubReqRx(flume::RecvError),

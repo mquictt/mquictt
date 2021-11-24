@@ -15,7 +15,7 @@ mod error;
 mod protocol;
 pub use config::Config;
 pub use error::Error;
-pub use protocol::Publish;
+pub use protocol::MQTTRead;
 
 pub struct Connection {
     conn: quinn::Connection,

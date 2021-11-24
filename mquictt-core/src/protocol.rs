@@ -4,10 +4,13 @@
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone)]
-pub struct Publish(pub Bytes);
+pub enum MQTTRead {
+    Publish(Bytes),
+    Disconnect,
+}
 
-impl Publish {
-    pub fn read(stream: &mut BytesMut) -> Result<Self, mqttbytes::Error> {
+impl MQTTRead {
+    pub fn read(stream: &mut BytesMut) -> Result<MQTTRead, mqttbytes::Error> {
         let mut iter = stream.iter();
         let stream_len = iter.len();
         if stream_len < 2 {
@@ -20,6 +23,10 @@ impl Publish {
 
         let packet = stream.split_to(fixed_header_len + remaining_len).freeze();
 
+        if packet_type(byte1)? == mqttbytes::PacketType::Disconnect {
+            return Ok(MQTTRead::Disconnect);
+        }
+
         let qos = mqttbytes::qos((byte1 & 0b0110) >> 1)?;
         if qos != mqttbytes::QoS::AtMostOnce {
             return Err(mqttbytes::Error::InvalidQoS(0));
@@ -31,7 +38,7 @@ impl Publish {
             return Err(mqttbytes::Error::TopicNotUtf8);
         }
 
-        return Ok(Publish(packet));
+        return Ok(MQTTRead::Publish(packet));
     }
 }
 
@@ -72,4 +79,25 @@ pub fn length(stream: std::slice::Iter<u8>) -> Result<(usize, usize), mqttbytes:
     }
 
     Ok((len_len, len))
+}
+
+fn packet_type(byte1: u8) -> Result<mqttbytes::PacketType, mqttbytes::Error> {
+    let num = byte1 >> 4;
+    match num {
+        1 => Ok(mqttbytes::PacketType::Connect),
+        2 => Ok(mqttbytes::PacketType::ConnAck),
+        3 => Ok(mqttbytes::PacketType::Publish),
+        4 => Ok(mqttbytes::PacketType::PubAck),
+        5 => Ok(mqttbytes::PacketType::PubRec),
+        6 => Ok(mqttbytes::PacketType::PubRel),
+        7 => Ok(mqttbytes::PacketType::PubComp),
+        8 => Ok(mqttbytes::PacketType::Subscribe),
+        9 => Ok(mqttbytes::PacketType::SubAck),
+        10 => Ok(mqttbytes::PacketType::Unsubscribe),
+        11 => Ok(mqttbytes::PacketType::UnsubAck),
+        12 => Ok(mqttbytes::PacketType::PingReq),
+        13 => Ok(mqttbytes::PacketType::PingResp),
+        14 => Ok(mqttbytes::PacketType::Disconnect),
+        _ => Err(mqttbytes::Error::InvalidPacketType(num)),
+    }
 }
