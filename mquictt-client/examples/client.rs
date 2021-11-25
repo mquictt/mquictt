@@ -21,18 +21,18 @@ async fn main() -> Result<(), mquictt_client::Error> {
         .await?;
 
     let mut subscriber = client.subscriber("hello/world").await?;
-    publisher.publish(Bytes::from("hello again!")).await?;
+    publisher.publish(Bytes::from("hello again!"))?;
     publisher.flush().await.unwrap();
     tokio::spawn(async move {
         for i in 0..100 {
-            if let Err(e) = publisher.publish(Bytes::from(format!("{}!", i))).await {
-                error!("{}", e);
-            }
-            if let Err(e) = publisher.flush().await {
+            if let Err(e) = publisher.publish(Bytes::from(format!("{}!", i))) {
                 error!("{}", e);
             }
         }
-        if let Err(e) =publisher.close().await {
+        if let Err(e) = publisher.flush().await {
+            error!("{}", e);
+        }
+        if let Err(e) = publisher.close().await {
             error!("{}", e);
         }
     });

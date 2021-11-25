@@ -170,7 +170,7 @@ impl Publisher {
     /// **needs** to be called explcitly else nothing will be written to the network.
     ///
     /// [`flush()`]: `Publisher::flush`
-    pub async fn publish(&mut self, payload: Bytes) -> Result<(), Error> {
+    pub fn publish(&mut self, payload: Bytes) -> Result<(), Error> {
         if let Err(e) = v4::Publish::from_bytes(&self.topic, mqttbytes::QoS::AtMostOnce, payload)
             .write(&mut self.buf)
         {

@@ -37,8 +37,8 @@ async fn main() -> Result<(), mquictt_client::Error> {
     let mut subscriber1 = client1.subscriber("hello/world").await?;
 
     // publish and flush from a publisher, read from both sub
-    publisher.publish(Bytes::from("hello again!")).await?;
-    publisher.flush().await.unwrap();
+    publisher.publish(Bytes::from("hello again!"))?;
+    publisher.flush().await?;
 
     println!(
         "0: {}\n1: {}",
@@ -46,23 +46,29 @@ async fn main() -> Result<(), mquictt_client::Error> {
         std::str::from_utf8(&subscriber1.read().await?).unwrap()
     );
 
-    // Publish multiple times to same topic with both
+    // Publish multiple times to same topic, send after each iteration
     tokio::spawn(async move {
         for i in 0..100 {
-            if let Err(e) = publisher.publish(Bytes::from(format!("0: {}!", i))).await {
+            if let Err(e) = publisher.publish(Bytes::from(format!("0: {}!", i))) {
                 error!("{}", e);
             }
             if let Err(e) = publisher.flush().await {
                 error!("{}", e);
             }
-            if let Err(e) = publisher1.publish(Bytes::from(format!("1: {}!", i))).await {
-                error!("{}", e);
-            }
-            if let Err(e) = publisher1.flush().await {
+        }
+        if let Err(e) = publisher.close().await {
+            error!("{}", e);
+        }
+    });
+
+    // Publish multiple times to same topic, send after all iterations
+    tokio::spawn(async move {
+        for i in 0..100 {
+            if let Err(e) = publisher1.publish(Bytes::from(format!("1: {}!", i))) {
                 error!("{}", e);
             }
         }
-        if let Err(e) = publisher.close().await {
+        if let Err(e) = publisher1.flush().await {
             error!("{}", e);
         }
         if let Err(e) = publisher1.close().await {
