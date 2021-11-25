@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use bytes::BytesMut;
@@ -36,7 +36,7 @@ impl Map {
     }
 }
 
-type Mapper = Arc<RwLock<Map>>;
+type Mapper = Arc<Mutex<Map>>;
 
 /// Spawns a new server that listens for incoming MQTT connects from clients at the given address.
 ///
@@ -46,7 +46,7 @@ type Mapper = Arc<RwLock<Map>>;
 pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error> {
     let mut listener = QuicServer::new(config, addr)?;
     info!("QUIC server launched at {}", listener.local_addr());
-    let b_tx: Mapper = Arc::new(RwLock::new(Map::new()));
+    let b_tx: Mapper = Arc::new(Mutex::new(Map::new()));
 
     loop {
         let conn = match listener.accept().await {
@@ -133,7 +133,7 @@ async fn handle_new_stream(
                 // ignoring first publish's payload as there are no subscribers
                 // TODO: handle case when subsribing to topic that is not in mapper
                 let data_tx = {
-                    let mut map = map.write().unwrap();
+                    let mut map = map.lock().unwrap();
                     map.get_or_create_sender(&topic)?
                 };
                 debug!("new PUBLISH stream addr = {} id = {}", remote_addr, rx.id());
@@ -149,9 +149,9 @@ async fn handle_new_stream(
                     None => return Ok(()),
                 };
                 let data_rx = {
-                    let mut map = map.write().unwrap();
+                    let mut map = map.lock().unwrap();
                     let Transmitter(tr) = map.get_or_create_sender(&filter.path)?;
-                    let tr = tr.write().unwrap();
+                    let tr = tr.read().unwrap();
                     tr.subscribe()
                 };
                 debug!(
