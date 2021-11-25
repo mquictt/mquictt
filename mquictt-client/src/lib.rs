@@ -5,7 +5,7 @@ use log::*;
 use mqttbytes::v4;
 
 use mquictt_core::{recv_stream_read, Connection};
-pub use mquictt_core::{Error, Config};
+pub use mquictt_core::{Config, Error};
 
 /// Used to initiate connection to a MQTT server over QUIC.
 ///
@@ -68,6 +68,18 @@ impl Client {
         Ok(Client { conn })
     }
 
+    /// Sends a disconnect packet, closes the entire connection (not just this stream).
+    pub async fn close(&mut self) -> Result<(), Error> {
+        let mut tx = self.conn.create_send_stream().await?;
+        let mut buf = BytesMut::new();
+        if let Err(e) = v4::Disconnect.write(&mut buf) {
+            return Err(Error::MQTT(e));
+        }
+        tx.write_all(&buf).await?;
+
+        Ok(())
+    }
+
     /// Creates a new publish stream for the given topic. Further publishes will be on the same
     /// topic. See [`Publisher`] for more details.
     // `init_payload` needed as we need to let server know what type of stream this is
@@ -77,7 +89,7 @@ impl Client {
         init_payload: Bytes,
     ) -> Result<Publisher, Error> {
         // create a new stream
-        let (mut tx, _) = self.conn.create_stream().await?;
+        let mut tx = self.conn.create_send_stream().await?;
         let topic = topic.into();
 
         // send publish with `init_payload`
@@ -108,7 +120,9 @@ impl Client {
         let mut buf = BytesMut::new();
 
         // send subscribe packet
-        if let Err(e) = v4::Subscribe::new(topic, mqttbytes::QoS::AtMostOnce).write(&mut buf) {
+        let filter = topic.into();
+        let topic = filter.clone();
+        if let Err(e) = v4::Subscribe::new(filter, mqttbytes::QoS::AtMostOnce).write(&mut buf) {
             return Err(Error::MQTT(e));
         }
         let _write = tx.write_all(&buf).await?;
@@ -131,7 +145,7 @@ impl Client {
         debug!("recved SUBACK from {}", self.conn.remote_addr());
 
         // same buffer transfered as it might contain data for some publishes
-        Ok(Subscriber { rx, tx, buf })
+        Ok(Subscriber { rx, tx, buf, topic })
     }
 }
 
@@ -159,7 +173,7 @@ impl Publisher {
     /// **needs** to be called explcitly else nothing will be written to the network.
     ///
     /// [`flush()`]: `Publisher::flush`
-    pub async fn publish(&mut self, payload: Bytes) -> Result<(), Error> {
+    pub fn publish(&mut self, payload: Bytes) -> Result<(), Error> {
         if let Err(e) = v4::Publish::from_bytes(&self.topic, mqttbytes::QoS::AtMostOnce, payload)
             .write(&mut self.buf)
         {
@@ -183,6 +197,12 @@ impl Publisher {
     pub fn topic(&self) -> &str {
         &self.topic
     }
+
+    /// Merely closes the publish stream.
+    pub async fn close(&mut self) -> Result<(), Error> {
+        self.tx.finish().await?;
+        Ok(())
+    }
 }
 
 /// Subsriber to a single topic.
@@ -198,6 +218,7 @@ impl Publisher {
 ///
 /// [`flush()`]: `Publisher::flush`
 pub struct Subscriber {
+    topic: String,
     tx: quinn::SendStream,
     rx: quinn::RecvStream,
     buf: BytesMut,
@@ -221,13 +242,15 @@ impl Subscriber {
         }
     }
 
-    /// Sends a disconnect packet, closes the entire connection (not just this stream).
+    /// Sends an unsubscribe packet associated with topic and closes the subscriber stream.
     pub async fn close(&mut self) -> Result<(), Error> {
         self.buf.clear();
-        if let Err(e) = v4::Disconnect.write(&mut self.buf) {
+        if let Err(e) = v4::Unsubscribe::new(&self.topic).write(&mut self.buf) {
             return Err(Error::MQTT(e));
         }
         self.tx.write_all(&self.buf).await?;
+        self.tx.finish().await?;
+
         Ok(())
     }
 }
