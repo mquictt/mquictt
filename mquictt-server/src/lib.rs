@@ -46,7 +46,7 @@ type Mapper = Arc<Mutex<Map>>;
 pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error> {
     let mut listener = QuicServer::new(config, addr)?;
     info!("QUIC server launched at {}", listener.local_addr());
-    let b_tx: Mapper = Arc::new(Mutex::new(Map::new()));
+    let map: Mapper = Arc::new(Mutex::new(Map::new()));
 
     loop {
         let conn = match listener.accept().await {
@@ -59,8 +59,8 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
         };
 
         info!("accepted conn from {}", conn.remote_addr());
-        let b_tx = b_tx.clone();
-        tokio::spawn(connection_handler(conn, b_tx));
+        let map = map.clone();
+        tokio::spawn(connection_handler(conn, map));
     }
 }
 
