@@ -86,7 +86,7 @@ impl Connection {
         Ok(self.conn.open_bi().await?)
     }
 
-    pub async fn accept(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream), Error> {
+    pub async fn accept_stream(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream), Error> {
         match self.streams.next().await {
             Some(s) => Ok(s?),
             None => Err(Error::ConnectionBroken),

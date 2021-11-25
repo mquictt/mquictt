@@ -10,7 +10,7 @@ use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use mquictt_core::{Publish, recv_stream_read, Connection, QuicServer};
+use mquictt_core::{recv_stream_read, Connection, Publish, QuicServer};
 pub use mquictt_core::{Config, Error};
 
 type DataTx = flume::Sender<Publish>;
@@ -48,7 +48,7 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
 
 async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), Error> {
     debug!("connection handler spawned for {}", conn.remote_addr());
-    let (mut tx, mut rx) = conn.accept().await?;
+    let (mut tx, mut rx) = conn.accept_stream().await?;
     debug!("stream accepted for {}", conn.remote_addr());
     let mut buf = BytesMut::with_capacity(2048);
 
@@ -82,7 +82,7 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
     buf.clear();
     let remote_addr = conn.remote_addr();
     loop {
-        let (tx, rx) = conn.accept().await?;
+        let (tx, rx) = conn.accept_stream().await?;
         let mapper = mapper.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_new_stream(tx, rx, mapper, remote_addr).await {
