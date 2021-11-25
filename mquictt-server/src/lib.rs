@@ -5,12 +5,13 @@ use std::{
 };
 
 use bytes::BytesMut;
+use flume::Sender;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::*;
 use mqttbytes::v4;
 use slab::Slab;
 
-use mquictt_core::{Publish, recv_stream_read, Connection, QuicServer};
+use mquictt_core::{recv_stream_read, Connection, Publish, QuicServer};
 pub use mquictt_core::{Config, Error};
 
 type DataTx = flume::Sender<Publish>;
@@ -48,7 +49,7 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
 
 async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), Error> {
     debug!("connection handler spawned for {}", conn.remote_addr());
-    let (mut tx, mut rx) = conn.accept().await?;
+    let (mut tx, mut rx) = conn.accept_stream().await?;
     debug!("stream accepted for {}", conn.remote_addr());
     let mut buf = BytesMut::with_capacity(2048);
 
@@ -81,21 +82,25 @@ async fn connection_handler(mut conn: Connection, mapper: Mapper) -> Result<(), 
 
     buf.clear();
     let remote_addr = conn.remote_addr();
+    let (close_tx, close_rx) = flume::bounded(1);
     loop {
-        let (tx, rx) = conn.accept().await?;
-        let mapper = mapper.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle_new_stream(tx, rx, mapper, remote_addr).await {
-                error!("{}", e);
+        tokio::select! {
+            streams_result = conn.accept_stream() => {
+                let (tx, rx) = streams_result?;
+                let mapper = mapper.clone();
+                let close_tx = close_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle_new_stream(tx, rx, mapper, remote_addr, close_tx).await {
+                        error!("{}", e);
+                    }
+                });
             }
-        });
 
-        // tokio::select! {
-        //     streams_result = conn.accept() => {
-        //         let (tx, rx) = streams_result?;
-        //         tokio::spawn(handle_new_stream(tx, rx, mapper.clone()));
-        //     }
-        // }
+            _ = close_rx.recv_async() => {
+                info!("Connection closed: {}", conn.remote_addr());
+                return Ok(())
+            }
+        }
     }
 }
 
@@ -104,6 +109,7 @@ async fn handle_new_stream(
     mut rx: quinn::RecvStream,
     mapper: Mapper,
     remote_addr: SocketAddr,
+    close_tx: Sender<()>,
 ) -> Result<(), Error> {
     let mut buf = BytesMut::with_capacity(2048);
 
@@ -144,6 +150,12 @@ async fn handle_new_stream(
                     rx.id()
                 );
                 return handle_subscribe(tx, rx, data_rx, remote_addr).await;
+            }
+            Ok(v4::Packet::Disconnect) => {
+                info!("Disconnecting from: {}", remote_addr);
+                if let Err(e) = close_tx.send(()) {
+                    error!("Couldn't use channel to close connection: {}", e)
+                }
             }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
