@@ -5,7 +5,7 @@ use log::*;
 use mqttbytes::v4;
 
 use mquictt_core::{recv_stream_read, Connection};
-pub use mquictt_core::{Error, Config};
+pub use mquictt_core::{Config, Error};
 
 /// Used to initiate connection to a MQTT server over QUIC.
 ///
@@ -66,6 +66,17 @@ impl Client {
         debug!("recved CONNACK from {}", conn.remote_addr());
 
         Ok(Client { conn })
+    }
+
+    /// Sends a disconnect packet, closes the entire connection (not just this stream).
+    pub async fn close(&mut self) -> Result<(), Error> {
+        let (mut tx, _) = self.conn.create_stream().await?;
+        let mut buf = BytesMut::new();
+        if let Err(e) = v4::Disconnect.write(&mut buf) {
+            return Err(Error::MQTT(e));
+        }
+        tx.write_all(&buf).await?;
+        Ok(())
     }
 
     /// Creates a new publish stream for the given topic. Further publishes will be on the same
@@ -182,6 +193,16 @@ impl Publisher {
     /// Topic to which this stream publishes to.
     pub fn topic(&self) -> &str {
         &self.topic
+    }
+
+    /// Sends a disconnect packet, closes the entire connection (not just this stream).
+    pub async fn close(&mut self) -> Result<(), Error> {
+        self.buf.clear();
+        if let Err(e) = v4::Disconnect.write(&mut self.buf) {
+            return Err(Error::MQTT(e));
+        }
+        self.tx.write_all(&self.buf).await?;
+        Ok(())
     }
 }
 
