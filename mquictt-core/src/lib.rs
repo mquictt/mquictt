@@ -208,6 +208,11 @@ pub async fn recv_stream_read(
 ///
 /// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()]`.
 ///
+/// # Safety
+///
+/// Don't do pointer stuff with given array, or atleast be mindful of the length that it advertises
+/// and use that only.
+///
 /// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
 #[inline(always)]
 pub unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {

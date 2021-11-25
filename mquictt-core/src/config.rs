@@ -1,4 +1,4 @@
-use std::{fs, path::{Path, PathBuf}, str::FromStr, sync::Arc};
+use std::{fs, path::{Path, PathBuf}, sync::Arc};
 
 use serde::Deserialize;
 
@@ -11,9 +11,9 @@ use crate::Error;
 /// ```no_run
 /// {
 ///     "auth": {
-/// 	    "ca_cert_file": "certs/rootca.crt",
-/// 	    "cert_file": "certs/server/cert.crt",
-/// 	    "key_file": "certs/server/cert.key"
+///         "ca_cert_file": "certs/rootca.crt",
+///         "cert_file": "certs/server/cert.crt",
+///         "key_file": "certs/server/cert.key"
 ///     }
 /// }
 /// ```
@@ -24,7 +24,8 @@ use crate::Error;
 pub struct Config {
     /// paths to files needed for authentication.
     pub auth: Option<Auth>,
-    pub logs: Option<LogConfig>,
+    #[serde(default)]
+    pub logs: LogConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,7 +78,7 @@ impl Config {
     pub fn empty() -> Arc<Self> {
         Arc::new(Config {
             auth: None,
-            logs: Some(LogConfig::default()),
+            logs: LogConfig::default(),
         })
     }
 
@@ -87,9 +88,9 @@ impl Config {
     /// ```no_run
     /// {
     ///     "auth": {
-    /// 	    "ca_cert_file": "certs/rootca.crt",
-    /// 	    "cert_file": "certs/server/cert.crt",
-    /// 	    "key_file": "certs/server/cert.key"
+    ///         "ca_cert_file": "certs/rootca.crt",
+    ///         "cert_file": "certs/server/cert.crt",
+    ///         "key_file": "certs/server/cert.key"
     ///     },
     ///     "logs": {
     ///

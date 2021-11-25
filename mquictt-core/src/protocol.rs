@@ -38,7 +38,7 @@ impl MQTTRead {
             return Err(mqttbytes::Error::TopicNotUtf8);
         }
 
-        return Ok(MQTTRead::Publish(packet));
+        Ok(MQTTRead::Publish(packet))
     }
 }
 
