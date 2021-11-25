@@ -18,8 +18,8 @@ pub enum Error {
     Connect(#[from] quinn::ConnectError),
     /// QUIC error when writing to stream.
     #[error("Write Error : {0}")]
-    /// QUIC error when reading from stream.
     Write(#[from] quinn::WriteError),
+    /// QUIC error when reading from stream.
     #[error("Read Error : {0}")]
     Read(#[from] quinn::ReadError),
     /// Connection was abruptly broken.
