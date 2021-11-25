@@ -11,6 +11,7 @@ flume = "0.10.9"
 futures = "0.3.18"
 log = "0.4.14"
 mqttbytes = "0.6.0"
+paste = "1.0.6"
 quinn = { version = "0.7.2", features = ["rustls"] }
 rustls = "0.19"
 rustls-pemfile = "0.2.1"

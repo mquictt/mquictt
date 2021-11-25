@@ -99,13 +99,6 @@ async fn connection_handler(
                 error!("{}", e);
             }
         });
-
-        // tokio::select! {
-        //     streams_result = conn.accept() => {
-        //         let (tx, rx) = streams_result?;
-        //         tokio::spawn(handle_new_stream(tx, rx, mapper.clone()));
-        //     }
-        // }
     }
 }
 
