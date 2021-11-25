@@ -65,9 +65,10 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
 }
 
 async fn connection_handler(mut conn: Connection, map: Mapper) -> Result<(), Error> {
-    debug!("connection handler spawned for {}", conn.remote_addr());
-    let (mut tx, mut rx) = conn.accept().await?;
-    debug!("stream accepted for {}", conn.remote_addr());
+    let remote_addr = conn.remote_addr();
+    debug!("connection handler spawned for {}", remote_addr);
+    let (mut tx, mut rx) = conn.accept_stream().await?;
+    debug!("stream accepted for {}", remote_addr);
     let mut buf = BytesMut::with_capacity(2048);
 
     let mut len = recv_stream_read(&mut rx, &mut buf).await?;
@@ -75,7 +76,10 @@ async fn connection_handler(mut conn: Connection, map: Mapper) -> Result<(), Err
         match v4::read(&mut buf, 1024 * 1024) {
             // TODO: check duplicate id
             Ok(v4::Packet::Connect(_)) => break,
-            Ok(v4::Packet::Disconnect) => return Ok(()),
+            Ok(v4::Packet::Disconnect) => {
+                info!("Closing stream from: {}", remote_addr);
+                return Ok(());
+            }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
                 len += recv_stream_read(&mut rx, &mut buf).await?;
@@ -101,7 +105,7 @@ async fn connection_handler(mut conn: Connection, map: Mapper) -> Result<(), Err
     buf.clear();
     let remote_addr = conn.remote_addr();
     loop {
-        let (tx, rx) = conn.accept().await?;
+        let (tx, rx) = conn.accept_stream().await?;
         let map = map.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_new_stream(tx, rx, map, remote_addr).await {
@@ -161,7 +165,10 @@ async fn handle_new_stream(
                 );
                 return handle_subscribe(tx, rx, data_rx, remote_addr).await;
             }
-            Ok(v4::Packet::Disconnect) => return Ok(()),
+            Ok(v4::Packet::Disconnect) => {
+                info!("Closing stream from: {}", remote_addr);
+                return Ok(());
+            }
             Ok(_) => continue,
             Err(mqttbytes::Error::InsufficientBytes(_)) => {
                 recv_stream_read(&mut rx, &mut buf).await?;
