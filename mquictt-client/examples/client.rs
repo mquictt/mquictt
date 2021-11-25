@@ -32,12 +32,17 @@ async fn main() -> Result<(), mquictt_client::Error> {
         if let Err(e) = publisher.flush().await {
             error!("{}", e);
         }
+        if let Err(e) = publisher.close().await {
+            error!("{}", e);
+        }
     });
 
     // Read from subscriber
     while let Ok(data) = subscriber.read().await {
         println!("{}", std::str::from_utf8(&data).unwrap());
     }
+    subscriber.close().await.unwrap();
+    client.close().await.unwrap();
 
     Ok(())
 }
