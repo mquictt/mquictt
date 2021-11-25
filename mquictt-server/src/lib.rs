@@ -195,28 +195,23 @@ async fn handle_publish(
     );
 
     'outer: loop {
-        tokio::select! {
-            read = recv_stream_read(&mut rx, &mut buf) => {
-                let len = read?;
-                debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
+        let len = recv_stream_read(&mut rx, &mut buf).await?;
+        debug!("{} :: {} [PS] read {} bytes", remote_addr, rx.id(), len);
 
-                loop {
-                    let publish = match Publish::read(&mut buf) {
-                        Ok(publish) => publish,
-                        Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
-                        Err(e) => return Err(Error::MQTT(e)),
-                    };
+        loop {
+            let publish = match Publish::read(&mut buf) {
+                Ok(publish) => publish,
+                Err(mqttbytes::Error::InsufficientBytes(_)) => continue 'outer,
+                Err(e) => return Err(Error::MQTT(e)),
+            };
 
-                    {
-                        let Transmitter(tx) = data_tx.clone();
-                        let data_tx = tx.write().unwrap();
-                        data_tx.send(publish)?;
-                    };
-
-                    buf.reserve(2048);
-                }
-
+            let Transmitter(tx) = data_tx.clone();
+            {
+                let data_tx = tx.write().unwrap();
+                data_tx.send(publish)?;
             }
+
+            buf.reserve(2048);
         }
     }
 }
