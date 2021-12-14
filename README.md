@@ -21,9 +21,9 @@ As QUIC is basically a state-machine slapped on top of UDP, the only change need
 To create a MQTT server:
 ```rust
 async fn spawn_server() {
-    mquictt::server(
+    mquictt_server::server(
         &([127, 0, 0, 1], 1883).into(),
-        mquictt::Config::read(&"server.json").unwrap(),
+        mquictt_server::Config::read(&"server.json").unwrap(),
     )
     .await
     .unwrap();
@@ -36,12 +36,12 @@ use bytes::Bytes;
 
 async fn spawn_client() {
     // create a client
-    let mut client = mquictt::Client::connect(
+    let mut client = mquictt_client::Client::connect(
         &([127, 0, 0, 1], 2000).into(),
         &([127, 0, 0, 1], 1883).into(),
         "localhost",
         "0",
-        mquictt::Config::read(&"client.json").unwrap(),
+        mquictt_client::Config::read(&"client.json").unwrap(),
     )
     .await.unwrap();
 
@@ -50,6 +50,7 @@ async fn spawn_client() {
         .publisher("hello/world", Bytes::from("hello"))
         .await.unwrap();
     publisher.publish(Bytes::from("hello again!")).await.unwrap();
+	publisher.flush.await.unwrap();
 
     // create a subscriber
     let mut subscriber = client.subscriber("hello/world").await.unwrap();
@@ -64,9 +65,11 @@ async fn spawn_client() {
 We use:
 - [quinn-rs/quinn][quinn] underneath to interface with QUIC
 - [bytebeamio/mqttbytes][mqttbytes] to parse MQTT packets
+- [tokio][tokio] for async runtime
 
 [MQTT]: https://mqtt.org/
 [QUIC]: https://en.wikipedia.org/wiki/QUIC
 [quinn]: https://github.com/quinn-rs/quinn
 [mqttbytes]: https://github.com/bytebeamio/rumqtt/tree/master/mqttbytes
+[tokio]: https://github.com/tokio-rs/tokio
 [head-of-line blocking]: https://en.wikipedia.org/wiki/Head-of-line_blocking

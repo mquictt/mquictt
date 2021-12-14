@@ -69,13 +69,16 @@ impl Client {
     }
 
     /// Sends a disconnect packet, closes the entire connection (not just this stream).
-    pub async fn close(&mut self) -> Result<(), Error> {
+    pub async fn close(mut self) -> Result<(), Error> {
         let mut tx = self.conn.create_send_stream().await?;
+        let addr = self.conn.remote_addr();
         let mut buf = BytesMut::new();
         if let Err(e) = v4::Disconnect.write(&mut buf) {
             return Err(Error::MQTT(e));
         }
         tx.write_all(&buf).await?;
+        debug!("closing client to {}", addr);
+        tx.finish();
 
         Ok(())
     }
@@ -89,7 +92,7 @@ impl Client {
         init_payload: Bytes,
     ) -> Result<Publisher, Error> {
         // create a new stream
-        let mut tx = self.conn.create_send_stream().await?;
+        let (mut tx, _) = self.conn.create_stream().await?;
         let topic = topic.into();
 
         // send publish with `init_payload`
@@ -201,6 +204,7 @@ impl Publisher {
     /// Merely closes the publish stream.
     pub async fn close(&mut self) -> Result<(), Error> {
         self.tx.finish().await?;
+        debug!("closed pub to topic {}", &self.topic);
         Ok(())
     }
 }
@@ -243,13 +247,16 @@ impl Subscriber {
     }
 
     /// Sends an unsubscribe packet associated with topic and closes the subscriber stream.
-    pub async fn close(&mut self) -> Result<(), Error> {
+    pub async fn close(mut self) -> Result<(), Error> {
         self.buf.clear();
         if let Err(e) = v4::Unsubscribe::new(&self.topic).write(&mut self.buf) {
             return Err(Error::MQTT(e));
         }
+        warn!("hoho");
         self.tx.write_all(&self.buf).await?;
+        warn!("hoho");
         self.tx.finish().await?;
+        debug!("closed sub to topic {}", &self.topic);
 
         Ok(())
     }

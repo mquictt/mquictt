@@ -100,7 +100,10 @@ async fn main() -> Result<(), mquictt_client::Error> {
             _ = &mut timer => {
                 client.close().await?;
                 client1.close().await?;
+                break
             }
         }
     }
+
+    Ok(())
 }
