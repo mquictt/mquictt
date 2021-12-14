@@ -6,21 +6,20 @@ use std::{
 
 use bytes::BytesMut;
 use futures::AsyncWriteExt;
-use flume::Sender;
 use log::*;
 use mqttbytes::v4;
+use tokio::sync::{broadcast, mpsc};
 
 use mquictt_core::{recv_stream_read, Connection, MQTTRead, QuicServer};
 pub use mquictt_core::{Config, Error};
 
-type NotifTx = flume::Sender<()>;
-type NotifRx = flume::Receiver<()>;
+type NotifTx = broadcast::Sender<()>;
+type NotifRx = broadcast::Receiver<()>;
 
 type Mapper = Arc<Mutex<HashMap<String, RoutingConfig>>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct RoutingConfig {
-    rx: NotifRx,
     tx: NotifTx,
     db: sled::Db,
 }
@@ -45,7 +44,7 @@ pub async fn server(addr: &SocketAddr, config: Arc<Config>) -> Result<(), Error>
             }
             e => e?,
         };
-        info!("accepted conn from {}", conn.remote_addr());
+        info!("accepted connection from {}", conn.remote_addr());
         tokio::spawn(connection_handler(
             conn,
             conns_list.clone(),
@@ -61,9 +60,8 @@ async fn connection_handler(
     mapper: Mapper,
     config: Arc<Config>,
 ) -> Result<(), Error> {
-    debug!("connection handler spawned for {}", conn.remote_addr());
     let (mut tx, mut rx) = conn.accept_stream().await?;
-    debug!("stream accepted for {}", conn.remote_addr());
+    debug!("stream accepted from {}", conn.remote_addr());
     let mut buf = BytesMut::with_capacity(2048);
 
     let mut len = recv_stream_read(&mut rx, &mut buf).await?;
@@ -102,7 +100,7 @@ async fn connection_handler(
 
     buf.clear();
     let remote_addr = conn.remote_addr();
-    let (close_tx, close_rx) = flume::bounded(1);
+    let (close_tx, mut close_rx): (mpsc::Sender<()>, _) = mpsc::channel(1);
     loop {
         // let (tx, rx) = conn.accept().await?;
         // let mapper = mapper.clone();
@@ -115,6 +113,7 @@ async fn connection_handler(
         tokio::select! {
             streams_result = conn.accept_stream() => {
                 let (tx, rx) = streams_result?;
+                debug!("new stream accepted from {}", conn.remote_addr());
                 let mapper = mapper.clone();
                 let config = config.clone();
                 let close_tx = close_tx.clone();
@@ -125,7 +124,7 @@ async fn connection_handler(
                 });
             }
 
-            _ = close_rx.recv_async() => {
+            _ = close_rx.recv() => {
                 info!("Connection closed: {}", conn.remote_addr());
                 return Ok(())
             }
@@ -139,7 +138,7 @@ async fn handle_new_stream(
     mapper: Mapper,
     config: Arc<Config>,
     remote_addr: SocketAddr,
-    close_tx: Sender<()>,
+    close_tx: mpsc::Sender<()>,
 ) -> Result<(), Error> {
     let mut buf = BytesMut::with_capacity(2048);
 
@@ -158,11 +157,10 @@ async fn handle_new_stream(
                             path.push(&topic);
                             let db = sled::open(path)?;
                             // notification channels only need a single slot to notify
-                            let (tx, rx) = flume::bounded(1);
+                            let (tx, _) = broadcast::channel(1);
                             map_lock.insert(
                                 topic,
                                 RoutingConfig {
-                                    rx,
                                     tx: tx.clone(),
                                     db: db.clone(),
                                 },
@@ -187,17 +185,16 @@ async fn handle_new_stream(
                 let (notif_rx, db) = {
                     let mut map_lock = mapper.lock().unwrap();
                     match map_lock.get(topic) {
-                        Some(RoutingConfig { rx, db, .. }) => (rx.clone(), db.clone()),
+                        Some(RoutingConfig { tx, db, .. }) => (tx.subscribe(), db.clone()),
                         None => {
                             let mut path = config.logs.path.clone();
                             path.push(&topic);
                             let db = sled::open(path)?;
                             // notification channels only need a single slot to notify
-                            let (tx, rx) = flume::bounded(1);
+                            let (tx, rx) = broadcast::channel(1);
                             map_lock.insert(
                                 topic.clone(),
                                 RoutingConfig {
-                                    rx: rx.clone(),
                                     tx,
                                     db: db.clone(),
                                 },
@@ -215,7 +212,7 @@ async fn handle_new_stream(
             }
             Ok(v4::Packet::Disconnect) => {
                 info!("Disconnecting from: {}", remote_addr);
-                if let Err(e) = close_tx.send(()) {
+                if let Err(e) = close_tx.send(()).await {
                     error!("Couldn't use channel to close connection: {}", e)
                 }
             }
@@ -280,11 +277,8 @@ async fn handle_publish(
         //   expose config API to provide db flush size, where size = number of publish messages
         db.apply_batch(batch)?;
 
-        if matches!(
-            notif_tx.try_send(()),
-            Err(flume::TrySendError::Disconnected(_))
-        ) {
-            return Err(Error::PubNotifTx(flume::TrySendError::Disconnected(())));
+        if let Err(e) = notif_tx.send(()) {
+            return Err(Error::PubNotifTx(e));
         }
 
         buf.reserve(2048);
@@ -296,7 +290,7 @@ async fn handle_publish(
 async fn handle_subscribe(
     mut tx: quinn::SendStream,
     mut rx: quinn::RecvStream,
-    notif_rx: NotifRx,
+    mut notif_rx: NotifRx,
     db: sled::Db,
     remote_addr: SocketAddr,
 ) -> Result<(), Error> {
@@ -321,7 +315,7 @@ async fn handle_subscribe(
                 break u64::from_be_bytes([k[0], k[1], k[2], k[3], k[4], k[5], k[6], k[7]])
             }
             None => {
-                notif_rx.recv_async().await?;
+                notif_rx.recv().await?;
                 continue;
             }
         }
@@ -336,7 +330,7 @@ async fn handle_subscribe(
 
     loop {
         tokio::select! {
-            notif_res = notif_rx.recv_async() => {
+            notif_res = notif_rx.recv() => {
                 notif_res?;
 
                 let mut len = 0;

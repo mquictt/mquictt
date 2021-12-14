@@ -36,10 +36,10 @@ pub enum Error {
     MissingCertificate,
     // Unable to send publish packets to the subscriber.
     #[error("Pub Notif Tx Error : {0}")]
-    PubNotifTx(#[from] flume::TrySendError<()>),
+    PubNotifTx(#[from] tokio::sync::broadcast::error::SendError<()>),
     // Unable to recv publish packets from the publisher.
     #[error("Pub Notif Recv Error : {0}")]
-    PubNotifRx(#[from] flume::RecvError),
+    PubNotifRx(#[from] tokio::sync::broadcast::error::RecvError),
     /// Unable to parse the config.
     #[error("Config Parse Error : {0}")]
     ConfigParse(#[from] serde_json::Error),
