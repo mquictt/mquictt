@@ -35,18 +35,15 @@ pub enum Error {
     #[error("Missing Tls Certificate Error")]
     MissingCertificate,
     // Unable to send publish packets to the subscriber.
-    #[error("Sub Request Tx Error : {0}")]
-    PubDataTx(#[from] flume::SendError<bytes::Bytes>),
+    #[error("Pub Notif Tx Error : {0}")]
+    PubNotifTx(#[from] flume::TrySendError<()>),
     // Unable to recv publish packets from the publisher.
-    #[error("Pub Data Recv Error : {0}")]
-    PubDataRx(#[from] flume::RecvError),
-    /// Unable to register the subsriber with the corresponding publisher.
-    #[error("Sub Request Tx Error : {0}")]
-    SubReqTx(#[from] flume::SendError<flume::Sender<bytes::Bytes>>),
-    /// Unable to receive subscription requests at the publisher end.
-    #[error("Sub Request Tx Error : {0}")]
-    SubReqRx(flume::RecvError),
+    #[error("Pub Notif Recv Error : {0}")]
+    PubNotifRx(#[from] flume::RecvError),
     /// Unable to parse the config.
     #[error("Config Parse Error : {0}")]
     ConfigParse(#[from] serde_json::Error),
+    /// Error when interacting with database
+    #[error("DB Error : {0}")]
+    Sled(#[from] sled::Error)
 }

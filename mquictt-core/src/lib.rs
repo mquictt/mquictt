@@ -1,6 +1,6 @@
 #![doc = include_str!("../../README.md")]
 
-use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use std::{fs::File, io::BufReader, net::SocketAddr, path::Path, sync::Arc};
 
 use bytes::{BufMut, BytesMut};
 use config::Auth;
@@ -107,33 +107,7 @@ fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
             key_file: key_path,
             ca_cert_file: ca_path,
         }) => {
-            // Get certificates
-            let cert_file = File::open(&cert_path)?;
-            let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
-
-            // Get private key
-            let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
-
-            // Get the first key
-            let key = match keys.first() {
-                Some(k) => k.clone(),
-                None => return Err(Error::MissingCertificate),
-            };
-
-            let certs = certs
-                .iter()
-                .map(|cert| Certificate(cert.to_vec()))
-                .collect();
-            let key = PrivateKey(key);
-
-            let ca_file = File::open(ca_path)?;
-            let ca_file = &mut BufReader::new(ca_file);
-            let mut store = RootCertStore::empty();
-            store
-                .add_pem_file(ca_file)
-                .map_err(|_| Error::MissingCertificate)?;
-
+            let (certs, key, store) = load_auth_files(cert_path, key_path, ca_path)?;
             let mut client_config = rustls::ClientConfig::default();
             client_config.root_store = store;
             client_config.set_single_client_cert(certs, key)?;
@@ -156,33 +130,7 @@ fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
             key_file: key_path,
             ca_cert_file: ca_path,
         }) => {
-            // Get certificates
-            let cert_file = File::open(&cert_path)?;
-            let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
-
-            // Get private key
-            let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
-
-            // Get the first key
-            let key = match keys.first() {
-                Some(k) => k.clone(),
-                None => return Err(Error::MissingCertificate),
-            };
-
-            let certs = certs
-                .iter()
-                .map(|cert| Certificate(cert.to_vec()))
-                .collect();
-            let key = PrivateKey(key);
-
-            let ca_file = File::open(ca_path)?;
-            let ca_file = &mut BufReader::new(ca_file);
-            let mut store = RootCertStore::empty();
-            store
-                .add_pem_file(ca_file)
-                .map_err(|_| Error::MissingCertificate)?;
-
+            let (certs, key, store) = load_auth_files(cert_path, key_path, ca_path)?;
             let mut config =
                 rustls::ServerConfig::new(AllowAnyAnonymousOrAuthenticatedClient::new(store));
             config.set_single_cert(certs, key)?;
@@ -196,6 +144,48 @@ fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
 
         None => Ok(ServerConfig::default()),
     }
+}
+
+fn load_auth_files<P: AsRef<Path>>(
+    cert_path: P,
+    key_path: P,
+    ca_path: P,
+) -> Result<
+    (
+        Vec<rustls::Certificate>,
+        rustls::PrivateKey,
+        rustls::RootCertStore,
+    ),
+    Error,
+> {
+    // Get certificates
+    let cert_file = File::open(&cert_path)?;
+    let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
+
+    // Get private key
+    let key_file = File::open(&key_path)?;
+    let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
+
+    // Get the first key
+    let key = match keys.first() {
+        Some(k) => k.clone(),
+        None => return Err(Error::MissingCertificate),
+    };
+
+    let certs = certs
+        .iter()
+        .map(|cert| Certificate(cert.to_vec()))
+        .collect();
+    let key = PrivateKey(key);
+
+    let ca_file = File::open(ca_path)?;
+    let ca_file = &mut BufReader::new(ca_file);
+    let mut store = RootCertStore::empty();
+    store
+        .add_pem_file(ca_file)
+        .map_err(|_| Error::MissingCertificate)?;
+
+    Ok((certs, key, store))
 }
 
 #[inline(always)]
@@ -221,6 +211,11 @@ pub async fn recv_stream_read(
 /// remaining capacity of the `BytesMut` as determined by [`bytes::BufMut::has_remaining_mut()`].
 ///
 /// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()]`.
+///
+/// # Safety
+///
+/// Don't do pointer stuff with given array, or atleast be mindful of the length that it advertises
+/// and use that only.
 ///
 /// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
 #[inline(always)]

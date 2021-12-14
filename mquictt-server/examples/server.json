@@ -3,5 +3,8 @@
 		"ca_cert_file": "certs/ca.cert.pem",
 		"cert_file": "certs/localhost.cert.pem",
 		"key_file": "certs/localhost.key.pem"
+	},
+	"logs": {
+		"dir": "data"
 	}
 }
