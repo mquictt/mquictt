@@ -31,7 +31,7 @@ impl Publish {
             return Err(mqttbytes::Error::TopicNotUtf8);
         }
 
-        return Ok(Publish(packet));
+        Ok(Publish(packet))
     }
 }
 

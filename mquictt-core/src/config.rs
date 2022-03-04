@@ -11,9 +11,9 @@ use crate::Error;
 /// ```no_run
 /// {
 ///     "auth": {
-/// 	    "ca_cert_file": "certs/rootca.crt",
-/// 	    "cert_file": "certs/server/cert.crt",
-/// 	    "key_file": "certs/server/cert.key"
+///         "ca_cert_file": "certs/rootca.crt",
+///         "cert_file": "certs/server/cert.crt",
+///         "key_file": "certs/server/cert.key"
 ///     }
 /// }
 /// ```
@@ -45,9 +45,9 @@ impl Config {
     /// ```no_run
     /// {
     ///     "auth": {
-    /// 	    "ca_cert_file": "certs/rootca.crt",
-    /// 	    "cert_file": "certs/server/cert.crt",
-    /// 	    "key_file": "certs/server/cert.key"
+    ///         "ca_cert_file": "certs/rootca.crt",
+    ///         "cert_file": "certs/server/cert.crt",
+    ///         "key_file": "certs/server/cert.key"
     ///     }
     /// }
     /// ```

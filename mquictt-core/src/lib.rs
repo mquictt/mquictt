@@ -203,8 +203,6 @@ pub async fn recv_stream_read(
     rx: &mut quinn::RecvStream,
     buf: &mut BytesMut,
 ) -> Result<usize, Error> {
-    // SAFETY: we trust qiunn's implementation to not misuse the array, and we advance the
-    // `BytesMut`'s cursor to proper length as well
     let dst = unsafe { bytesmut_as_arr(buf) };
     match rx.read(dst).await? {
         Some(len) => {
@@ -222,6 +220,10 @@ pub async fn recv_stream_read(
 ///
 /// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()]`.
 ///
+/// # Safety
+/// we trust qiunn's implementation to not misuse the array, and we advance the `BytesMut`'s cursor
+/// to proper length as well
+/// 
 /// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
 #[inline(always)]
 pub unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {
