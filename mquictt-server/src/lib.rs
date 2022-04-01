@@ -19,7 +19,7 @@ type DataRx = flume::Receiver<Publish>;
 
 type SubReqTx = flume::Sender<DataTx>;
 type SubReqRx = flume::Receiver<DataTx>;
-type Mapper = Arc<RwLock<HashMap<String, SubReqTx>>>;
+type Mapper = Arc<RwLock<HashMap<String, (Option<SubReqRx>, SubReqTx)>>>;
 
 /// Spawns a new server that listens for incoming MQTT connects from clients at the given address.
 ///
@@ -118,12 +118,18 @@ async fn handle_new_stream(
         match v4::read(&mut buf, 1024 * 1024) {
             Ok(v4::Packet::Publish(v4::Publish { topic, .. })) => {
                 // ignoring first publish's payload as there are no subscribers
-                // TODO: handle case when subsribing to topic that is not in mapper
-                let (sub_req_tx, sub_req_rx) = flume::bounded(1024);
-                {
+                let sub_req_rx = {
                     let mut map_writer = mapper.write().unwrap();
-                    map_writer.insert(topic, sub_req_tx);
-                }
+                    match map_writer.get_mut(&topic) {
+                        Some((sub_req_rx, _)) => sub_req_rx.take().unwrap(),
+                        None => {
+                            let (sub_req_tx, sub_req_rx) = flume::bounded(1024);
+                            map_writer.insert(topic, (None, sub_req_tx));
+                            sub_req_rx
+                        }
+                    }
+                };
+
                 debug!("new PUBLISH stream addr = {} id = {}", remote_addr, rx.id());
                 return handle_publish(rx, sub_req_rx, buf, remote_addr).await;
             }
@@ -139,10 +145,17 @@ async fn handle_new_stream(
                 let (data_tx, data_rx) = flume::bounded(1024);
                 {
                     let map_reader = mapper.read().unwrap();
-                    // TODO: handle case when subsribing to topic that is not in mapper
-                    let sub_req_tx = map_reader.get(&filter.path).unwrap();
+                    match map_reader.get(&filter.path) {
+                        Some((_, sub_req_tx)) => sub_req_tx.send(data_tx)?,
+                        None => {
+                            drop(map_reader);
+                            let (sub_req_tx, sub_req_rx) = flume::bounded(1024);
+                            let mut map_writer = mapper.write().unwrap();
+                            map_writer
+                                .insert(filter.path.to_owned(), (Some(sub_req_rx), sub_req_tx));
+                        }
+                    }
                     // waiting blockingly as we are not allowed to await when holding a lock
-                    sub_req_tx.send(data_tx)?;
                 }
                 debug!(
                     "new SUBSCRIBE stream addr = {} id = {}",
