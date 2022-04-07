@@ -147,7 +147,7 @@ impl Client {
         }
         debug!("recved SUBACK from {}", self.conn.remote_addr());
 
-        // same buffer transfered as it might contain data for some publishes
+        // same buffer transferred as it might contain data for some publishes
         Ok(Subscriber { rx, tx, buf, topic })
     }
 }
@@ -155,7 +155,7 @@ impl Client {
 /// A publish stream for a topic. The stream is closed when this gets dropped. All messages
 /// published using a single `Publisher` happen to the same topic.
 ///
-/// Note that callers explcitly need to call [`flush()`] to flush all the publishes to network.
+/// Note that callers explicitly need to call [`flush()`] to flush all the publishes to network.
 ///
 /// ```
 /// let mut client = mquictt::Client::connect(bind_addr, connect_addr, server_name, id, config).await?;
@@ -209,9 +209,9 @@ impl Publisher {
     }
 }
 
-/// Subsriber to a single topic.
+/// Subscriber to a single topic.
 ///
-/// Note that callers explcitly need to call [`flush()`] to flush all the publishes to network.
+/// Note that callers explicitly need to call [`flush()`] to flush all the publishes to network.
 ///
 /// ```
 /// let mut client = mquictt::Client::connect(bind_addr, connect_addr, server_name, id, config).await?;

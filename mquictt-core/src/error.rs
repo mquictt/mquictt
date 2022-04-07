@@ -1,4 +1,4 @@
-/// A single enum for all the errors that can hapeen in `mquictt`.
+/// A single enum for all the errors that can happen in `mquictt`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An IO error occured, happens when creating a socket or reading a file.
