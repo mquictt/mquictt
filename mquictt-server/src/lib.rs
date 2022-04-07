@@ -147,7 +147,7 @@ async fn handle_new_stream(
         match v4::read(&mut buf, 1024 * 1024) {
             Ok(v4::Packet::Publish(v4::Publish { topic, .. })) => {
                 // ignoring first publish's payload as there are no subscribers
-                // TODO: handle case when subsribing to topic that is not in mapper
+                // TODO: handle case when subscribing to topic that is not in mapper
                 let (data_tx, db) = {
                     let mut map_lock = mapper.lock().unwrap();
                     match map_lock.get(&topic) {

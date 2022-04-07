@@ -4,7 +4,7 @@
 
 <br>
 
-**🚧 This is a pre-alpha project, tread carefully 🚧**
+**🚧 This is a pre-alpha project, treat carefully 🚧**
 
 A rustlang utility/library for [MQTT] over [QUIC].
 
