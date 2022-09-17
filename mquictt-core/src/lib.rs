@@ -1,14 +1,10 @@
 #![doc = include_str!("../../README.md")]
 
-use std::{fs::File, io::BufReader, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
 use bytes::{BufMut, BytesMut};
-use config::Auth;
 use futures::StreamExt;
-#[allow(unused_imports)]
-use log::*;
-use quinn::{ClientConfig, ServerConfig, TransportConfig};
-use rustls::{AllowAnyAnonymousOrAuthenticatedClient, Certificate, PrivateKey, RootCertStore};
+use quinn::{ClientConfig, ServerConfig};
 
 mod config;
 mod error;
@@ -32,8 +28,13 @@ pub struct QuicServer {
 impl QuicServer {
     pub fn new(config: Arc<Config>, addr: &SocketAddr) -> Result<Self, Error> {
         let mut builder = quinn::Endpoint::builder();
-        builder.listen(server_config(&config)?);
+        let server_config = match &config.auth {
+            Some(auth) => auth.server_config()?,
+            None => ServerConfig::default(),
+        };
+        builder.listen(server_config);
         let (endpoint, incoming) = builder.bind(addr)?;
+
         Ok(QuicServer {
             config,
             incoming,
@@ -50,6 +51,7 @@ impl QuicServer {
             Some(connecting) => connecting.await?,
             None => return Err(Error::ConnectionBroken),
         };
+
         Ok(Connection { conn, streams })
     }
 
@@ -69,7 +71,11 @@ impl Connection {
         config: Arc<Config>,
     ) -> Result<Self, Error> {
         let mut builder = quinn::Endpoint::builder();
-        builder.default_client_config(client_config(&config)?);
+        let client_config = match &config.auth {
+            Some(auth) => auth.client_config()?,
+            None => ClientConfig::default(),
+        };
+        builder.default_client_config(client_config);
         let (endpoint, _) = builder.bind(bind_addr)?;
 
         let quinn::NewConnection {
@@ -77,6 +83,7 @@ impl Connection {
             bi_streams: streams,
             ..
         } = endpoint.connect(connect_addr, server_name)?.await?;
+
         Ok(Connection { conn, streams })
     }
 
@@ -100,104 +107,6 @@ impl Connection {
     }
 }
 
-fn client_config(config: &Arc<Config>) -> Result<ClientConfig, Error> {
-    match &config.auth {
-        Some(Auth {
-            cert_file: cert_path,
-            key_file: key_path,
-            ca_cert_file: ca_path,
-        }) => {
-            // Get certificates
-            let cert_file = File::open(&cert_path)?;
-            let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
-
-            // Get private key
-            let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
-
-            // Get the first key
-            let key = match keys.first() {
-                Some(k) => k.clone(),
-                None => return Err(Error::MissingCertificate),
-            };
-
-            let certs = certs
-                .iter()
-                .map(|cert| Certificate(cert.to_vec()))
-                .collect();
-            let key = PrivateKey(key);
-
-            let ca_file = File::open(ca_path)?;
-            let ca_file = &mut BufReader::new(ca_file);
-            let mut store = RootCertStore::empty();
-            store
-                .add_pem_file(ca_file)
-                .map_err(|_| Error::MissingCertificate)?;
-
-            let mut client_config = rustls::ClientConfig::default();
-            client_config.root_store = store;
-            client_config.set_single_client_cert(certs, key)?;
-            client_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
-
-            Ok(ClientConfig {
-                transport: Arc::new(TransportConfig::default()),
-                crypto: Arc::new(client_config),
-            })
-        }
-
-        None => Ok(ClientConfig::default()),
-    }
-}
-
-fn server_config(config: &Arc<Config>) -> Result<ServerConfig, Error> {
-    match &config.auth {
-        Some(Auth {
-            cert_file: cert_path,
-            key_file: key_path,
-            ca_cert_file: ca_path,
-        }) => {
-            // Get certificates
-            let cert_file = File::open(&cert_path)?;
-            let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))?;
-
-            // Get private key
-            let key_file = File::open(&key_path)?;
-            let keys = rustls_pemfile::rsa_private_keys(&mut BufReader::new(key_file))?;
-
-            // Get the first key
-            let key = match keys.first() {
-                Some(k) => k.clone(),
-                None => return Err(Error::MissingCertificate),
-            };
-
-            let certs = certs
-                .iter()
-                .map(|cert| Certificate(cert.to_vec()))
-                .collect();
-            let key = PrivateKey(key);
-
-            let ca_file = File::open(ca_path)?;
-            let ca_file = &mut BufReader::new(ca_file);
-            let mut store = RootCertStore::empty();
-            store
-                .add_pem_file(ca_file)
-                .map_err(|_| Error::MissingCertificate)?;
-
-            let mut config =
-                rustls::ServerConfig::new(AllowAnyAnonymousOrAuthenticatedClient::new(store));
-            config.set_single_cert(certs, key)?;
-            config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
-
-            let mut server_config = ServerConfig::default();
-            server_config.crypto = Arc::new(config);
-
-            Ok(server_config)
-        }
-
-        None => Ok(ServerConfig::default()),
-    }
-}
-
 #[inline(always)]
 pub async fn recv_stream_read(
     rx: &mut quinn::RecvStream,
@@ -218,12 +127,12 @@ pub async fn recv_stream_read(
 /// Converts the [`BytesMut`] to `&mut [u8]`, with the length of returned array being equal to the
 /// remaining capacity of the `BytesMut` as determined by [`bytes::BufMut::has_remaining_mut()`].
 ///
-/// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()]`.
+/// `BytesMut` conversion part copied from [tokio's implementation] of [`TcpStream::read_buf()`].
 ///
 /// # Safety
 /// we trust qiunn's implementation to not misuse the array, and we advance the `BytesMut`'s cursor
 /// to proper length as well
-/// 
+///
 /// [tokio's implementation]: https://docs.rs/tokio/1.14.0/src/tokio/net/tcp/stream.rs.html#720-722
 #[inline(always)]
 pub unsafe fn bytesmut_as_arr(buf: &mut BytesMut) -> &mut [u8] {
